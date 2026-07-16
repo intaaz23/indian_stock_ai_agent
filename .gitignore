@@ -1,0 +1,39 @@
+cat > .gitignore <<'EOF'
+# Secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated data files
+data/input/*
+data/output/*
+data/docs/*
+
+# Keep folder placeholders if needed
+!data/input/.gitkeep
+!data/output/.gitkeep
+!data/docs/.gitkeep
+
+# Cache
+cache/
+
+# Reports
+reports/*
+!reports/.gitkeep
+
+# Generated CSV summary files
+downloaded_docs_summary.csv
+
+# OS files
+.DS_Store
+Thumbs.db
+EOF
