@@ -595,14 +595,55 @@ def run_qualitative_pipeline(
             ascending=False,
             na_position="last",
         )
+    sort_columns = [
+        col for col in [
+            "final_score",
+            "qualitative_score",
+            "quant_score",
+        ]
+        if col in output_df.columns
+    ]
 
+    for col in sort_columns:
+        output_df[col] = pd.to_numeric(output_df[col], errors="coerce")
+
+    if sort_columns:
+        output_df = output_df.sort_values(
+            by=sort_columns,
+            ascending=False,
+            na_position="last",
+        )
     output_df.to_csv(output_file, index=False)
 
     print(f"\nQualitative output saved to: {output_file}")
     print(f"Markdown reports saved to: {reports_dir}")
 
     print("\nTop final results:")
-    for _, row in output_df.head(20).iterrows():
+    display_df = output_df.copy()
+
+    for col in ["final_score", "qualitative_score", "quant_score"]:
+        if col in display_df.columns:
+            display_df[col] = pd.to_numeric(display_df[col], errors="coerce")
+
+    sort_columns = [
+        col for col in [
+            "final_score",
+            "qualitative_score",
+            "quant_score",
+        ]
+        if col in display_df.columns
+    ]
+
+    if sort_columns:
+        display_df = display_df.sort_values(
+            by=sort_columns,
+            ascending=False,
+            na_position="last",
+        )
+
+    print("\nTop 20 stocks after qualitative analysis:")
+
+    for _, row in display_df.head(20).iterrows():
         print(
             f"{row.get('symbol')} | "
             f"Quant: {row.get('quant_score')} | "
@@ -610,7 +651,6 @@ def run_qualitative_pipeline(
             f"Final: {row.get('final_score')} | "
             f"{row.get('final_decision')}"
         )
-
 
 def main():
     parser = argparse.ArgumentParser(
