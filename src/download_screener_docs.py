@@ -1,6 +1,7 @@
 import re
 import time
 import argparse
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -183,10 +184,14 @@ def score_annual_report_link(link):
     if "download" in combined:
         score += 15
 
-    # Prefer latest year strongly
+    # Prefer latest year strongly — high weight so recency dominates over text keywords
+    current_year = datetime.now().year
     year = link.get("year")
     if year:
-        score += (year - 2000) * 8
+        score += (year - 2000) * 20
+        # Progressive penalty for every year older than (current_year - 1)
+        if year < current_year - 1:
+            score -= (current_year - 1 - year) * 60
 
     # Penalize non-annual-report documents
     negative_words = [
@@ -215,10 +220,6 @@ def score_annual_report_link(link):
     for word in negative_words:
         if word in combined:
             score -= 90
-
-    # Old annual reports should lose strongly
-    if year and year < 2020:
-        score -= 160
 
     return score
 
@@ -250,9 +251,12 @@ def score_presentation_link(link):
     if "from bse" in combined or "from nse" in combined:
         score += 20
 
+    current_year = datetime.now().year
     year = link.get("year")
     if year:
-        score += (year - 2000) * 6
+        score += (year - 2000) * 20
+        if year < current_year - 1:
+            score -= (current_year - 1 - year) * 60
 
     negative_words = [
         "transcript",
@@ -306,9 +310,12 @@ def score_concall_link(link):
     if "from bse" in combined or "from nse" in combined:
         score += 20
 
+    current_year = datetime.now().year
     year = link.get("year")
     if year:
-        score += (year - 2000) * 6
+        score += (year - 2000) * 20
+        if year < current_year - 1:
+            score -= (current_year - 1 - year) * 60
 
     negative_words = [
         "annual report",
@@ -395,12 +402,22 @@ def categorize_links(links):
 
 def choose_latest_link(candidates):
     """
-    Candidate lists are already sorted by score.
-    Return highest-scored candidate.
+    Among the top-3 highest-scored candidates, prefer the one with the latest year.
+    This ensures a clearly better keyword-matched link is not overridden, while
+    still breaking ties in favour of the most recent document.
     """
     if not candidates:
         return None
-    return candidates[0]
+
+    # candidates are already sorted by score descending
+    top_cluster = candidates[:3]
+
+    # Among the top cluster, prefer latest year
+    with_year = [c for c in top_cluster if c.get("year")]
+    if with_year:
+        return max(with_year, key=lambda c: c["year"])
+
+    return top_cluster[0]
 
 
 # -----------------------------
