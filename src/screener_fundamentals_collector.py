@@ -23,7 +23,8 @@ DEFAULT_OUTPUT_FILE = PROJECT_ROOT / "data" / "input" / "screener_fundamentals.c
 DEFAULT_CACHE_DIR = PROJECT_ROOT / "cache" / "screener" / "html"
 
 SCREENER_BASE_URL = "https://www.screener.in"
-CACHE_DAYS = 30
+# 7 days keeps data within a single quarterly reporting cycle.
+CACHE_DAYS = 7
 
 HEADERS = {
     "User-Agent": (
@@ -483,15 +484,16 @@ def extract_cash_flow_history(soup: BeautifulSoup) -> Dict[str, Optional[float]]
         free_cash_flow_sum = cfo_sum - capex_sum
         fcf_method = "direct_capex"
 
-    # Fallback method: use investing cash flow as rough proxy
+    # Fallback method: use investing cash flow as a conservative proxy.
+    # Investing CF includes acquisitions and financial investments beyond pure capex,
+    # so we apply a 60% discount to avoid overstating the maintenance capex burden.
     elif cfo_sum is not None and investing_5y:
         investing_sum = sum(investing_5y)
-
-        # Investing cash flow is usually negative.
-        # CFO + Investing Cash Flow gives a rough conservative FCF proxy.
-        free_cash_flow_sum = cfo_sum + investing_sum
-        capex_sum = abs(investing_sum)
-        fcf_method = "investing_cash_flow_proxy"
+        # Investing CF is usually negative; take 60% of the outflow as capex proxy.
+        capex_estimate = abs(investing_sum) * 0.60
+        free_cash_flow_sum = cfo_sum - capex_estimate
+        capex_sum = capex_estimate
+        fcf_method = "investing_cash_flow_proxy_discounted"
 
     cash_conversion = None
     if cfo_sum is not None and net_profit_sum not in [None, 0]:
@@ -580,7 +582,68 @@ def extract_valuation_history(soup: BeautifulSoup, top_ratios: Dict[str, Optiona
     }
 
 
-def classify_sector_group(row_data: Dict, page_text: str) -> str:
+def extract_bank_metrics(soup: BeautifulSoup, top_ratios: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
+    """
+    Extracts banking-specific metrics from Screener for bank/NBFC/insurance stocks.
+
+    Screener surfaces NIM, Gross NPA, Net NPA, and CASA in the top-ratios block
+    for financial companies. CAR is extracted from the annual ratios table when
+    present.
+
+    Returns None for each field if Screener does not expose it for the company.
+    """
+    nim = (
+        top_ratios.get("net interest margin")
+        or top_ratios.get("nim")
+        or top_ratios.get("net interest margin %")
+        or top_ratios.get("net interest margin(%)")
+    )
+
+    gross_npa = (
+        top_ratios.get("gross npa")
+        or top_ratios.get("gnpa")
+        or top_ratios.get("gross npa %")
+        or top_ratios.get("gross npa(%)")
+    )
+
+    net_npa = (
+        top_ratios.get("net npa")
+        or top_ratios.get("nnpa")
+        or top_ratios.get("net npa %")
+        or top_ratios.get("net npa(%)")
+    )
+
+    casa = (
+        top_ratios.get("casa")
+        or top_ratios.get("casa %")
+        or top_ratios.get("casa ratio")
+    )
+
+    # CAR is less commonly surfaced in top-ratios; try the ratios table too.
+    car = (
+        top_ratios.get("car")
+        or top_ratios.get("capital adequacy ratio")
+        or top_ratios.get("capital adequacy ratio %")
+    )
+    if car is None:
+        ratios_section = find_section(soup, "ratios")
+        ratios_rows = parse_table_rows(ratios_section)
+        car_values = find_row(
+            ratios_rows,
+            ["capital adequacy ratio", "car", "crar"],
+        )
+        car = last_numeric(car_values)
+
+    return {
+        "net_interest_margin": safe_round(nim),
+        "gross_npa_percent": safe_round(gross_npa),
+        "net_npa_percent": safe_round(net_npa),
+        "casa_ratio": safe_round(casa),
+        "capital_adequacy_ratio": safe_round(car),
+    }
+
+
+
     symbol = clean_symbol(row_data.get("symbol"))
 
     if symbol in SECTOR_OVERRIDES:
@@ -709,6 +772,13 @@ def collect_for_symbol(
         "quarterly_sales_consistency": None,
         "quarterly_profit_consistency": None,
 
+        # Bank / NBFC / Insurance specific metrics (None for non-financial companies)
+        "net_interest_margin": None,
+        "gross_npa_percent": None,
+        "net_npa_percent": None,
+        "casa_ratio": None,
+        "capital_adequacy_ratio": None,
+
         "data_completeness_score": None,
         "sector_scoring_group": None,
     }
@@ -770,8 +840,13 @@ def collect_for_symbol(
     # Quarterly trend
     base_result.update(extract_quarterly_trend(soup))
 
-    # Sector group
+    # Sector group (needed before bank metrics extraction)
     base_result["sector_scoring_group"] = classify_sector_group(input_row, page_text)
+
+    # Bank / NBFC / Insurance specific metrics
+    financial_groups = {"bank", "nbfc", "insurance"}
+    if base_result["sector_scoring_group"] in financial_groups:
+        base_result.update(extract_bank_metrics(soup, top_ratios))
 
     # Completeness
     base_result["data_completeness_score"] = calculate_data_completeness(base_result)

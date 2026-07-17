@@ -25,8 +25,8 @@ DEFAULT_REPORTS_DIR = "reports/qualitative"
 DEFAULT_INPUT_FILE = "data/output/qualitative_llm_input.csv"
 DEFAULT_OUTPUT_FILE = "data/output/qualitative_llm_output.csv"
 
-MAX_DOCUMENT_CHARS = 12_000
-MAX_CHARS_PER_FILE = 6_000
+MAX_DOCUMENT_CHARS = 20_000
+MAX_CHARS_PER_FILE = 8_000
 SLEEP_BETWEEN_CALLS = 1.0
 
 
@@ -205,17 +205,44 @@ def build_qualitative_prompt(row: Dict, document_text: str, used_files: List[str
     sector = safe_str(row.get("sector"))
     industry = safe_str(row.get("industry"))
 
+    has_documents = bool(used_files)
+
+    if has_documents:
+        doc_instruction = (
+            "Analyze the company primarily from the documents provided below. "
+            "Cite only information present in the documents or widely known public facts. "
+            "Do NOT invent specific figures, management names, contract values, or "
+            "governance details that are not grounded in the provided text."
+        )
+        doc_section = document_text
+    else:
+        doc_instruction = (
+            "NO company documents were provided. "
+            "Your analysis must be speculative and based only on the raw financial "
+            "metrics above and general sector/industry knowledge. "
+            "You MUST set confidence_level to 'Low'. "
+            "Use the word 'speculative' in business_model_summary, management_quality, "
+            "and reasoning_summary. "
+            "Do NOT invent management names, contract details, or specific historical facts."
+        )
+        doc_section = "No documents provided."
+
     prompt = f"""
 You are a senior Indian equity research analyst.
 
 Your job:
-Analyze the qualitative strength of the company using the provided quantitative summary and available documents.
+Analyze the qualitative strength of the company using the raw financial metrics
+and any documents provided. Your qualitative_score must reflect business quality,
+management quality, moat, and governance — NOT the pre-computed quant scores.
 
 Important rules:
-1. Do not blindly give investment advice.
-2. Do not invent facts not present in the data.
-3. If documents are missing or insufficient, say confidence is low.
-4. Focus on business quality, management quality, moat, risks, governance, and earnings durability.
+1. Do not give investment advice.
+2. {doc_instruction}
+3. Do NOT base qualitative_score on the quant_score or any pre-computed score
+   already shown below. The quantitative scores are provided as context only.
+   Score business quality independently.
+4. Focus on business model, management quality, moat, risks, governance, and
+   earnings durability.
 5. The final output must be valid JSON only.
 6. Do not wrap JSON in markdown.
 7. Do not include any text outside JSON.
@@ -226,7 +253,7 @@ Company:
 - Sector: {sector}
 - Industry: {industry}
 
-Quantitative summary:
+Raw financial metrics (for context — do NOT echo these as qualitative findings):
 - Price: {row.get("price")}
 - Market cap crore: {row.get("market_cap_cr")}
 - Trailing P/E: {row.get("trailing_pe")}
@@ -237,21 +264,13 @@ Quantitative summary:
 - Earnings growth %: {row.get("earnings_growth_percent")}
 - Profit margin %: {row.get("profit_margin_percent")}
 - Operating margin %: {row.get("operating_margin_percent")}
-- Quality score: {row.get("quality_score")}
-- Growth score: {row.get("growth_score")}
-- Valuation score: {row.get("valuation_score")}
-- Quant score: {row.get("quant_score")}
-- Estimated fair value: {row.get("estimated_fair_value")}
-- Strong buy below: {row.get("strong_buy_below")}
-- Accumulate below: {row.get("accumulate_below")}
-- Quant zone: {row.get("quant_zone")}
-- Red flags from quant script: {row.get("red_flags")}
+- Red flags from quant analysis: {row.get("red_flags")}
 
 Documents used:
 {json.dumps(used_files, indent=2)}
 
 Document text:
-{document_text if document_text else "No company documents were provided. Use only the quantitative summary and clearly mark confidence as low."}
+{doc_section}
 
 Analyze using this framework:
 
@@ -337,7 +356,12 @@ def call_llm(client: OpenAI, model: str, prompt: str) -> Dict:
                 "role": "system",
                 "content": (
                     "You are a careful Indian equity research analyst. "
-                    "Return only valid JSON. Do not hallucinate facts."
+                    "Return only valid JSON. "
+                    "Do NOT hallucinate or invent facts. "
+                    "Only state what is grounded in the provided documents or widely "
+                    "known, publicly verifiable facts about the company. "
+                    "When documents are absent or incomplete, explicitly mark confidence "
+                    "as Low and flag all key assessments as speculative."
                 ),
             },
             {
@@ -453,13 +477,36 @@ Disclaimer: This report is generated for research and education only. It is not 
 # Final Score Combiner
 # -----------------------------
 
-def calculate_final_score(quant_score: Optional[float], qualitative_score: Optional[float]) -> Optional[float]:
+def calculate_final_score(
+    quant_score: Optional[float],
+    qualitative_score: Optional[float],
+    confidence_level: Optional[str] = None,
+    has_documents: bool = False,
+) -> Optional[float]:
+    """
+    Combines quant and qualitative scores.
+
+    The qualitative weight is scaled by confidence and document availability:
+    - High confidence with documents: 35% qualitative weight
+    - Medium confidence with documents: 25%
+    - Low confidence (or no documents): 10%
+
+    This prevents a speculative, document-free LLM score from having
+    the same influence as a well-evidenced, high-confidence analysis.
+    """
     if quant_score is None or qualitative_score is None:
         return None
 
-    # Recommended weight:
-    # Quant is more objective, qualitative adds business judgement.
-    final_score = quant_score * 0.65 + qualitative_score * 0.35
+    if not has_documents or confidence_level == "Low":
+        qual_weight = 0.10
+    elif confidence_level == "Medium":
+        qual_weight = 0.25
+    else:
+        # "High" or any unexpected value: full qualitative contribution
+        qual_weight = 0.35
+
+    quant_weight = 1.0 - qual_weight
+    final_score = quant_score * quant_weight + qualitative_score * qual_weight
     return round(final_score, 2)
 
 
@@ -542,13 +589,20 @@ def run_qualitative_pipeline(
 
             qualitative_score = safe_float(llm_result.get("qualitative_score"))
             quant_score = safe_float(row_dict.get("quant_score"))
+            confidence_level = safe_str(llm_result.get("confidence_level"))
 
-            final_score = calculate_final_score(quant_score, qualitative_score)
+            final_score = calculate_final_score(
+                quant_score,
+                qualitative_score,
+                confidence_level=confidence_level,
+                has_documents=bool(used_files),
+            )
 
             combined = {
                 **row_dict,
                 **llm_result,
                 "documents_used": "; ".join(used_files),
+                "has_documents": bool(used_files),
                 "final_score": final_score,
             }
 
