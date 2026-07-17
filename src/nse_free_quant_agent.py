@@ -50,10 +50,15 @@ def clamp(value, low=0, high=100):
 
 
 def _lerp_score(value, lo_val, hi_val, lo_score, hi_score):
-    """Linear interpolation between two scoring breakpoints."""
+    """Linear interpolation between two scoring breakpoints.
+
+    t is clamped to [0, 1] so that values slightly outside the expected band
+    (due to floating-point precision) never produce scores outside [lo_score, hi_score].
+    """
     if hi_val == lo_val:
         return float(hi_score)
     t = (value - lo_val) / (hi_val - lo_val)
+    t = max(0.0, min(1.0, t))
     return round(lo_score + t * (hi_score - lo_score), 2)
 
 
@@ -1129,8 +1134,10 @@ class QuantAnalyzer:
         eps = price / trailing_pe
 
         # Build a stabilised growth estimate by averaging available growth metrics.
-        # Using two inputs instead of earnings_growth alone reduces noise from
-        # one-off base effects (e.g., a very weak or very strong base year).
+        # Equal weighting is used deliberately: earnings growth (volatile due to
+        # base effects) and revenue growth (smoother, less distorted) each capture
+        # a different aspect of business momentum.  A 50/50 blend reduces both
+        # cherry-picking from a good earnings year and ignoring profit expansion.
         growth_inputs = [g for g in [earnings_growth, revenue_growth] if g is not None]
 
         if not growth_inputs:
@@ -1142,7 +1149,9 @@ class QuantAnalyzer:
             stable_growth = max(-5.0, min(avg_growth, 20.0))
             # Graham/Lynch style: fair P/E = 8.5 + 2 x sustainable growth %.
             fair_pe = 8.5 + 2 * max(0.0, stable_growth)
-            # Cap between 10 and 40 to keep estimates realistic for Indian equities.
+            # Cap at 40 as a conservative upper bound suitable for the broad NSE
+            # universe.  High-conviction growth stocks may justify higher multiples,
+            # but those require qualitative judgement beyond a mechanical formula.
             fair_pe = clamp(fair_pe, 10, 40)
 
         fair_value = eps * fair_pe

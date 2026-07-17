@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 
 SRC_DIR = ROOT / "src"
 DATA_DIR = ROOT / "data"
-INPUT_DIR = DATA_DIR / "input"
+INPUT_DIR = DATA_DIR / "input"   # stores screener_fundamentals.csv
 OUTPUT_DIR = DATA_DIR / "output"
 DOCS_DIR = DATA_DIR / "docs"
 REPORTS_DIR = ROOT / "reports" / "qualitative"

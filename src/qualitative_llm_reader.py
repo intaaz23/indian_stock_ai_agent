@@ -26,6 +26,8 @@ DEFAULT_INPUT_FILE = "data/output/qualitative_llm_input.csv"
 DEFAULT_OUTPUT_FILE = "data/output/qualitative_llm_output.csv"
 
 MAX_DOCUMENT_CHARS = 20_000
+# MAX_CHARS_PER_FILE is chosen so that at least 2-3 documents can contribute
+# meaningful content before hitting MAX_DOCUMENT_CHARS (20000 / 8000 = 2.5x).
 MAX_CHARS_PER_FILE = 8_000
 SLEEP_BETWEEN_CALLS = 1.0
 
@@ -210,8 +212,10 @@ def build_qualitative_prompt(row: Dict, document_text: str, used_files: List[str
     if has_documents:
         doc_instruction = (
             "Analyze the company primarily from the documents provided below. "
-            "Cite only information present in the documents or widely known public facts. "
-            "Do NOT invent specific figures, management names, contract values, or "
+            "Cite only information present in the documents or widely known, "
+            "publicly verifiable facts (e.g., known management names from official "
+            "company filings or regulatory disclosures). "
+            "Do NOT invent specific financial figures, contract values, or "
             "governance details that are not grounded in the provided text."
         )
         doc_section = document_text
@@ -501,9 +505,11 @@ def calculate_final_score(
         qual_weight = 0.10
     elif confidence_level == "Medium":
         qual_weight = 0.25
-    else:
-        # "High" or any unexpected value: full qualitative contribution
+    elif confidence_level == "High":
         qual_weight = 0.35
+    else:
+        # Unknown or None confidence_level: treat conservatively as Medium.
+        qual_weight = 0.25
 
     quant_weight = 1.0 - qual_weight
     final_score = quant_score * quant_weight + qualitative_score * qual_weight
