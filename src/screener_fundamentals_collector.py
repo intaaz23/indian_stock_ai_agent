@@ -643,7 +643,7 @@ def extract_bank_metrics(soup: BeautifulSoup, top_ratios: Dict[str, Optional[flo
     }
 
 
-
+def classify_sector_group(row_data: Dict, page_text: str) -> str:
     symbol = clean_symbol(row_data.get("symbol"))
 
     if symbol in SECTOR_OVERRIDES:
@@ -762,6 +762,7 @@ def collect_for_symbol(
         "capex_5y": None,
         "free_cash_flow_5y": None,
         "cash_conversion_5y": None,
+        "fcf_calculation_method": None,
 
         "current_pe": None,
         "median_pe_5y": None,
@@ -911,7 +912,7 @@ def main():
         "--cache-days",
         type=int,
         default=CACHE_DAYS,
-        help="Refresh Screener cache after this many days. Default 30.",
+        help="Refresh Screener cache after this many days. Default 7.",
     )
 
     parser.add_argument(
