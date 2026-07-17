@@ -49,33 +49,51 @@ def clamp(value, low=0, high=100):
     return max(low, min(high, value))
 
 
+def _lerp_score(value, lo_val, hi_val, lo_score, hi_score):
+    """Linear interpolation between two scoring breakpoints.
+
+    t is clamped to [0, 1] so that values slightly outside the expected band
+    (due to floating-point precision) never produce scores outside [lo_score, hi_score].
+    """
+    if hi_val == lo_val:
+        return float(hi_score)
+    t = (value - lo_val) / (hi_val - lo_val)
+    t = max(0.0, min(1.0, t))
+    return round(lo_score + t * (hi_score - lo_score), 2)
+
+
 def score_range(value, excellent, good, average, bad, higher_is_better=True, missing_score=50):
     """
-    Converts any financial metric into a 0-100 score.
+    Converts any financial metric into a 0-100 score using linear interpolation.
+    Values smoothly transition between breakpoints instead of jumping in fixed
+    steps, avoiding artificial ranking cliffs.
+
+    Breakpoints map to anchor scores:
+      excellent -> 100, good -> 80, average -> 60, bad -> 40, below bad -> 20.
     """
     if value is None:
         return missing_score
 
     if higher_is_better:
         if value >= excellent:
-            return 100
+            return 100.0
         if value >= good:
-            return 80
+            return _lerp_score(value, good, excellent, 80.0, 100.0)
         if value >= average:
-            return 60
+            return _lerp_score(value, average, good, 60.0, 80.0)
         if value >= bad:
-            return 40
-        return 20
+            return _lerp_score(value, bad, average, 40.0, 60.0)
+        return 20.0
     else:
         if value <= excellent:
-            return 100
+            return 100.0
         if value <= good:
-            return 80
+            return _lerp_score(value, excellent, good, 100.0, 80.0)
         if value <= average:
-            return 60
+            return _lerp_score(value, good, average, 80.0, 60.0)
         if value <= bad:
-            return 40
-        return 20
+            return _lerp_score(value, average, bad, 60.0, 40.0)
+        return 20.0
 
 
 def rupees_to_crore(value):
@@ -185,20 +203,15 @@ def score_institutional_trend(fii_change, dii_change):
 
 
 def score_quarterly_consistency(value):
-    value = safe_float(value)
-
-    if value is None:
-        return 50
-
-    if value >= 100:
-        return 100
-    if value >= 75:
-        return 80
-    if value >= 50:
-        return 60
-    if value >= 25:
-        return 40
-    return 20
+    return score_range(
+        safe_float(value),
+        excellent=100,
+        good=75,
+        average=50,
+        bad=25,
+        higher_is_better=True,
+        missing_score=40,
+    )
 
 
 def score_cash_flow_history(row):
@@ -266,8 +279,9 @@ def calculate_enhanced_screener_score(row):
     - data completeness
 
     For banks/NBFCs/insurance:
-    - avoid using FCF as strong signal
-    - use more neutral weighting until proper bank/NBFC model is added
+    - uses NIM, Gross/Net NPA, CASA when available from Screener
+    - falls back to a conservative growth/governance/quarterly model when
+      banking metrics are absent
     """
     sector_group = str(row.get("sector_scoring_group", "")).lower()
 
@@ -278,7 +292,7 @@ def calculate_enhanced_screener_score(row):
         average=12,
         bad=8,
         higher_is_better=True,
-        missing_score=50,
+        missing_score=40,
     )
 
     sales_5y_score = score_range(
@@ -288,7 +302,7 @@ def calculate_enhanced_screener_score(row):
         average=7,
         bad=3,
         higher_is_better=True,
-        missing_score=50,
+        missing_score=40,
     )
 
     profit_5y_score = score_range(
@@ -298,7 +312,7 @@ def calculate_enhanced_screener_score(row):
         average=8,
         bad=3,
         higher_is_better=True,
-        missing_score=50,
+        missing_score=40,
     )
 
     long_term_growth_score = round(
@@ -328,7 +342,7 @@ def calculate_enhanced_screener_score(row):
         average=0,
         bad=-10,
         higher_is_better=True,
-        missing_score=50,
+        missing_score=40,
     )
 
     latest_profit_growth_score = score_range(
@@ -338,7 +352,7 @@ def calculate_enhanced_screener_score(row):
         average=0,
         bad=-10,
         higher_is_better=True,
-        missing_score=50,
+        missing_score=40,
     )
 
     sales_consistency_score = score_quarterly_consistency(
@@ -370,14 +384,75 @@ def calculate_enhanced_screener_score(row):
     financial_groups = ["bank", "nbfc", "insurance"]
 
     if sector_group in financial_groups:
-        # Until separate bank/NBFC model is added, use conservative weights.
-        enhanced_score = (
-            long_term_growth_score * 0.25
-            + promoter_quality_score * 0.20
-            + institutional_trend_score * 0.15
-            + quarterly_trend_score * 0.25
-            + data_confidence_score * 0.15
+        # Use banking-specific metrics extracted from Screener when available.
+        nim = safe_float(row.get("net_interest_margin"))
+        gross_npa = safe_float(row.get("gross_npa_percent"))
+        net_npa = safe_float(row.get("net_npa_percent"))
+        casa = safe_float(row.get("casa_ratio"))
+
+        nim_score = score_range(
+            nim,
+            excellent=4.5,
+            good=3.5,
+            average=2.5,
+            bad=1.5,
+            higher_is_better=True,
+            missing_score=40,
         )
+        gross_npa_score = score_range(
+            gross_npa,
+            excellent=1.0,
+            good=2.5,
+            average=5.0,
+            bad=8.0,
+            higher_is_better=False,
+            missing_score=40,
+        )
+        net_npa_score = score_range(
+            net_npa,
+            excellent=0.5,
+            good=1.5,
+            average=3.0,
+            bad=5.0,
+            higher_is_better=False,
+            missing_score=40,
+        )
+        casa_score = score_range(
+            casa,
+            excellent=50,
+            good=40,
+            average=30,
+            bad=20,
+            higher_is_better=True,
+            missing_score=40,
+        )
+
+        # Determine whether banking metrics are present enough to use the
+        # dedicated model or whether to fall back to the generic model.
+        bank_metrics_available = sum(
+            1 for v in [nim, gross_npa, net_npa, casa] if v is not None
+        )
+
+        if bank_metrics_available >= 2:
+            enhanced_score = (
+                nim_score * 0.20
+                + gross_npa_score * 0.15
+                + net_npa_score * 0.15
+                + casa_score * 0.10
+                + long_term_growth_score * 0.15
+                + promoter_quality_score * 0.10
+                + quarterly_trend_score * 0.10
+                + data_confidence_score * 0.05
+            )
+        else:
+            # Fall back to conservative generic model when NIM/NPA data is absent.
+            enhanced_score = (
+                long_term_growth_score * 0.25
+                + promoter_quality_score * 0.20
+                + institutional_trend_score * 0.15
+                + quarterly_trend_score * 0.25
+                + data_confidence_score * 0.15
+            )
     else:
         enhanced_score = (
             roce_score * 0.20
@@ -639,6 +714,13 @@ def save_shortlist_outputs(
         "data_completeness_score",
         "sector_scoring_group",
         "screener_data_available",
+
+        # Bank / NBFC / Insurance specific metrics
+        "net_interest_margin",
+        "gross_npa_percent",
+        "net_npa_percent",
+        "casa_ratio",
+        "capital_adequacy_ratio",
 
         "estimated_fair_value",
         "strong_buy_below",
@@ -1035,26 +1117,42 @@ class QuantAnalyzer:
 
     def estimated_fair_value(self):
         """
-        Simple fair value using EPS and fair P/E.
+        Rough fair value using EPS and a stabilised fair P/E.
 
-        This is a rough mechanical estimate only.
+        Uses a blended growth rate from both revenue and earnings growth to
+        reduce the impact of volatile single-year TTM earnings surprises.
         Final decision must use qualitative review.
         """
         price = self.m.price
         trailing_pe = self.m.trailing_pe
         earnings_growth = self.m.earnings_growth_percent
+        revenue_growth = self.m.revenue_growth_percent
 
         if not price or not trailing_pe or trailing_pe <= 0:
             return None
 
         eps = price / trailing_pe
 
-        if earnings_growth is None:
-            fair_pe = 18
+        # Build a stabilised growth estimate by averaging available growth metrics.
+        # Equal weighting is used deliberately: earnings growth (volatile due to
+        # base effects) and revenue growth (smoother, less distorted) each capture
+        # a different aspect of business momentum.  A 50/50 blend reduces both
+        # cherry-picking from a good earnings year and ignoring profit expansion.
+        growth_inputs = [g for g in [earnings_growth, revenue_growth] if g is not None]
+
+        if not growth_inputs:
+            # No growth data: use a conservative default fair P/E.
+            fair_pe = 15
         else:
-            # Graham/Lynch style fair P/E proxy.
-            fair_pe = 8.5 + 2 * max(0, min(earnings_growth, 20))
-            fair_pe = clamp(fair_pe, 10, 35)
+            avg_growth = sum(growth_inputs) / len(growth_inputs)
+            # Clamp to [-5%, 20%] so outlier TTM figures do not dominate.
+            stable_growth = max(-5.0, min(avg_growth, 20.0))
+            # Graham/Lynch style: fair P/E = 8.5 + 2 x sustainable growth %.
+            fair_pe = 8.5 + 2 * max(0.0, stable_growth)
+            # Cap at 40 as a conservative upper bound suitable for the broad NSE
+            # universe.  High-conviction growth stocks may justify higher multiples,
+            # but those require qualitative judgement beyond a mechanical formula.
+            fair_pe = clamp(fair_pe, 10, 40)
 
         fair_value = eps * fair_pe
         return round(fair_value, 2)
@@ -1071,7 +1169,7 @@ class QuantAnalyzer:
             average=12,
             bad=8,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         debt_score = score_range(
@@ -1081,7 +1179,7 @@ class QuantAnalyzer:
             average=100,
             bad=200,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         profit_margin_score = score_range(
@@ -1091,7 +1189,7 @@ class QuantAnalyzer:
             average=8,
             bad=4,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         operating_margin_score = score_range(
@@ -1101,7 +1199,7 @@ class QuantAnalyzer:
             average=12,
             bad=6,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         cash_score = score_range(
@@ -1111,7 +1209,7 @@ class QuantAnalyzer:
             average=0.75,
             bad=0.5,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         score = (
@@ -1132,7 +1230,7 @@ class QuantAnalyzer:
             average=8,
             bad=4,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         earnings_score = score_range(
@@ -1142,7 +1240,7 @@ class QuantAnalyzer:
             average=8,
             bad=3,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         score = revenue_score * 0.45 + earnings_score * 0.55
@@ -1156,7 +1254,7 @@ class QuantAnalyzer:
             average=35,
             bad=55,
             higher_is_better=False,
-            missing_score=40,
+            missing_score=35,
         )
 
         pb_score = score_range(
@@ -1166,7 +1264,7 @@ class QuantAnalyzer:
             average=6,
             bad=10,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         # High ROE businesses can justify somewhat higher P/B.
@@ -1210,7 +1308,7 @@ class QuantAnalyzer:
             average=14,
             bad=8,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         score = quality * 0.55 + moat_proxy * 0.25 + valuation * 0.20
@@ -1228,7 +1326,7 @@ class QuantAnalyzer:
             average=22,
             bad=35,
             higher_is_better=False,
-            missing_score=40,
+            missing_score=35,
         )
 
         pb_score = score_range(
@@ -1238,7 +1336,7 @@ class QuantAnalyzer:
             average=3.5,
             bad=6.0,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         debt_score = score_range(
@@ -1248,7 +1346,7 @@ class QuantAnalyzer:
             average=100,
             bad=200,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         dividend_score = score_range(
@@ -1258,7 +1356,7 @@ class QuantAnalyzer:
             average=0.5,
             bad=0,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         score = pe_score * 0.35 + pb_score * 0.25 + debt_score * 0.25 + dividend_score * 0.15
@@ -1280,7 +1378,7 @@ class QuantAnalyzer:
             average=2.0,
             bad=3.0,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         pe_score = score_range(
@@ -1290,7 +1388,7 @@ class QuantAnalyzer:
             average=40,
             bad=60,
             higher_is_better=False,
-            missing_score=45,
+            missing_score=35,
         )
 
         score = growth * 0.45 + peg_score * 0.35 + pe_score * 0.20
@@ -1308,7 +1406,7 @@ class QuantAnalyzer:
             average=10,
             bad=5,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         earnings_score = score_range(
@@ -1318,7 +1416,7 @@ class QuantAnalyzer:
             average=12,
             bad=5,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         margin_score = score_range(
@@ -1328,7 +1426,7 @@ class QuantAnalyzer:
             average=12,
             bad=6,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         roe_score = score_range(
@@ -1338,7 +1436,7 @@ class QuantAnalyzer:
             average=12,
             bad=8,
             higher_is_better=True,
-            missing_score=50,
+            missing_score=40,
         )
 
         score = revenue_score * 0.25 + earnings_score * 0.35 + margin_score * 0.20 + roe_score * 0.20
@@ -1369,7 +1467,7 @@ class QuantAnalyzer:
             average=100,
             bad=200,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         beta_score = score_range(
@@ -1379,7 +1477,7 @@ class QuantAnalyzer:
             average=1.3,
             bad=1.7,
             higher_is_better=False,
-            missing_score=50,
+            missing_score=40,
         )
 
         size_score = self.size_liquidity_score()
@@ -1534,18 +1632,16 @@ class QuantAnalyzer:
         india_compounder = self.india_compounder_score()
         entry = self.entry_score()
 
-        # Master score combines proven investor frameworks.
+        # Master score uses only the five independent base factors to avoid
+        # double-counting quality/growth/valuation via correlated investor-style
+        # sub-scores. Investor-style sub-scores are retained in the output for
+        # characterisation only.
         investor_master_score = (
-            quality * 0.18
-            + growth * 0.12
-            + valuation * 0.12
-            + entry * 0.16
-            + buffett_munger * 0.12
-            + lynch_garp * 0.08
-            + fisher_growth * 0.08
-            + greenblatt * 0.06
-            + marks_risk * 0.04
-            + india_compounder * 0.04
+            quality * 0.30
+            + growth * 0.20
+            + valuation * 0.20
+            + entry * 0.20
+            + size_liquidity * 0.10
         )
 
         investor_master_score = round(investor_master_score, 2)
@@ -1847,6 +1943,13 @@ def run_pipeline(
         "data_completeness_score",
         "sector_scoring_group",
         "screener_data_available",
+
+        # Bank / NBFC / Insurance specific metrics
+        "net_interest_margin",
+        "gross_npa_percent",
+        "net_npa_percent",
+        "casa_ratio",
+        "capital_adequacy_ratio",
 
         "estimated_fair_value",
         "strong_buy_below",
