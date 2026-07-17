@@ -513,7 +513,9 @@ def merge_screener_fundamentals(results_df: pd.DataFrame, screener_file: str) ->
         suffixes=("", "_screener"),
     )
 
-    results_df["screener_data_available"] = results_df["status"].notna()
+    results_df["screener_data_available"] = (
+        results_df["status"].fillna("").astype(str).str.lower().eq("ok")
+    )
 
     results_df["enhanced_screener_score"] = results_df.apply(
         lambda row: calculate_enhanced_screener_score(row)
