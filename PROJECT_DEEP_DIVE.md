@@ -268,8 +268,8 @@ Top-ranked stocks by `final_score`:
 | Web scraping | requests, BeautifulSoup4 |
 | Data processing | pandas |
 | PDF reading | pypdf |
-| LLM interface | openai (OpenAI-compatible client → Ollama) |
-| Local LLM | Ollama + qwen2.5:7b |
+| LLM interface | openai (OpenAI-compatible client → Ollama / Groq / Gemini) |
+| Local LLM | Ollama + qwen2.5:7b (or any cloud provider via .env) |
 | Config | python-dotenv (.env file) |
 | Visualisation | matplotlib |
 
@@ -298,6 +298,165 @@ python run_all_Version.py --limit 300 --shortlist-top-n 5
 
 # Quant only (no downloads, no LLM)
 python run_all_Version.py --skip-doc-download --skip-qualitative
+```
+
+---
+
+## How to Switch LLM Provider — Just Edit Your `.env`
+
+No code changes are needed. The pipeline uses the OpenAI-compatible API format, which
+all three providers support. Simply uncomment one block in your `.env` file.
+
+---
+
+### Option 0 — Ollama (Local, Free, No Internet Required)
+
+Best for: privacy, offline use, no rate limits.
+Weakness: quality limited to the size of model your machine can run.
+
+```env
+OPENAI_API_KEY=ollama
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_MODEL=qwen2.5:7b
+# LLM_SLEEP=1
+```
+
+**Setup steps:**
+1. Download Ollama: https://ollama.com/download
+2. Pull the model:
+   ```bash
+   ollama pull qwen2.5:7b
+   ```
+3. Run the pipeline normally:
+   ```bash
+   python run_all_Version.py
+   ```
+
+**Model alternatives you can pull:**
+| Model | Command | Notes |
+|---|---|---|
+| qwen2.5:7b | `ollama pull qwen2.5:7b` | Default, fits 8 GB VRAM |
+| qwen2.5:14b | `ollama pull qwen2.5:14b` | Better quality, needs 16 GB VRAM |
+| llama3.2:3b | `ollama pull llama3.2:3b` | Very fast, lower quality |
+| mistral:7b | `ollama pull mistral:7b` | Good general model |
+
+---
+
+### Option 1 — Groq Cloud (Free Tier, Fast, Qwen-32B)
+
+Best for: significantly better qualitative analysis than a local 7B model, no GPU needed,
+very fast inference (Groq uses custom LPU hardware).
+Weakness: rate-limited on the free tier (~30 RPM depending on model).
+
+```env
+OPENAI_API_KEY=gsk_your_groq_api_key_here
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+OPENAI_MODEL=openai/gpt-oss-120b
+# LLM_SLEEP=2
+```
+
+**Setup steps:**
+1. Create a free account at https://console.groq.com
+2. Go to **API Keys** → **Create API Key** → copy the `gsk_...` key
+3. Paste into `.env` as `OPENAI_API_KEY`
+4. Run the pipeline:
+   ```bash
+   python run_all_Version.py
+   # or with explicit sleep for rate limiting safety:
+   python run_all_Version.py --llm-sleep 3
+   ```
+
+**Model alternatives on Groq:**
+| Model | OPENAI_MODEL value | Notes |
+|---|---|---|
+| GPT-OSS 120B | `openai/gpt-oss-120b` | **Recommended** — flagship, 500 tps, production |
+| GPT-OSS 20B | `openai/gpt-oss-20b` | Faster (1000 tps), slightly lower quality |
+| Qwen 3.6 27B | `qwen/qwen3.6-27b` | Preview model, strong reasoning |
+| LLaMA 3.3 70B | `llama-3.3-70b-versatile` | Deprecating Aug 16 2026 — avoid |
+| LLaMA 3.1 8B | `llama-3.1-8b-instant` | Deprecating Aug 16 2026 — avoid |
+
+> **Deprecation note (as of July 2026):** `qwen-qwq-32b` → deprecated Jul 2025. Its replacement `qwen/qwen3-32b` → deprecated Jul 17 2026. Use `openai/gpt-oss-120b` instead.
+
+**Free tier limits:**
+- `openai/gpt-oss-120b`: 1,000 RPM, 250K TPM
+- `openai/gpt-oss-20b`: 1,000 RPM, 250K TPM
+- No credit card required
+
+---
+
+### Option 2 — Google Gemini Flash (Free Tier, OpenAI-Compatible)
+
+Best for: highest free-tier request quota, strong multilingual reasoning, Google-grade
+factual grounding. Gemini Flash is fast and very capable for document-based analysis.
+Weakness: 15 RPM on free tier — slower throughput for large shortlists.
+
+```env
+OPENAI_API_KEY=your_gemini_api_key_here
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+OPENAI_MODEL=gemini-2.0-flash
+# LLM_SLEEP=5
+```
+
+**Setup steps:**
+1. Go to https://aistudio.google.com/apikey
+2. Sign in with your Google account → **Create API Key** → copy the key
+3. Paste into `.env` as `OPENAI_API_KEY`
+4. Run the pipeline:
+   ```bash
+   python run_all_Version.py
+   # or with explicit sleep to stay within 15 RPM:
+   python run_all_Version.py --llm-sleep 5
+   ```
+
+**Model alternatives on Gemini free tier:**
+| Model | OPENAI_MODEL value | Notes |
+|---|---|---|
+| Gemini 2.0 Flash | `gemini-2.0-flash` | Recommended, fast + smart |
+| Gemini 1.5 Flash | `gemini-1.5-flash` | Stable, slightly older |
+| Gemini 2.5 Flash | `gemini-2.5-flash-preview-05-20` | Experimental, best quality |
+
+**Free tier limits:**
+- Gemini 2.0 Flash: 15 RPM, 1,500 RPD, 1M tokens/day
+- No credit card required
+
+---
+
+### Provider Comparison at a Glance
+
+| | Ollama (local) | Groq Cloud | Google Gemini Flash |
+|---|---|---|---|
+| Cost | Free | Free tier | Free tier |
+| Internet required | No | Yes | Yes |
+| GPU / VRAM needed | Yes | No | No |
+| Model quality | Depends on size | 32B (much better) | Gemini (very good) |
+| Rate limit | None | ~30 RPM | 15 RPM |
+| Recommended sleep | 1s | 3s | 5s |
+| Setup difficulty | Medium (install Ollama) | Easy (API key only) | Easy (API key only) |
+| Privacy | Full — data stays local | Groq's privacy policy | Google's privacy policy |
+
+**Recommendation:** Start with **Groq + `qwen-qwq-32b`** for the best free upgrade over local Ollama.
+Switch to **Gemini 2.0 Flash** if you need a higher daily request quota.
+
+---
+
+### Provider Auto-Detection at Runtime
+
+After switching `.env`, the pipeline will print at startup:
+
+```
+LLM provider : Groq Cloud
+LLM model    : qwen-qwq-32b
+LLM sleep    : 3.0s (provider default — override with --sleep or LLM_SLEEP)
+```
+
+You can also override sleep directly without editing `.env`:
+
+```bash
+# Override via CLI
+python run_all_Version.py --llm-sleep 4
+
+# Override via env var (set once in .env)
+LLM_SLEEP=4
 ```
 
 ---

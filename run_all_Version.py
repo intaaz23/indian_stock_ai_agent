@@ -101,6 +101,17 @@ def main():
         help="Skip qualitative LLM analysis step.",
     )
 
+    parser.add_argument(
+        "--llm-sleep",
+        type=float,
+        default=None,
+        help=(
+            "Sleep between LLM API calls in seconds. "
+            "If not set, uses a provider-aware default: Ollama=1, Groq=3, Gemini=5. "
+            "Increase this if you hit rate limit errors on the cloud free tiers."
+        ),
+    )
+
     args = parser.parse_args()
 
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -195,7 +206,7 @@ def main():
 
     # Step 5: Qualitative LLM analysis.
     if not args.skip_qualitative:
-        run_command([
+        qualitative_cmd = [
             python_exe,
             str(SRC_DIR / "qualitative_llm_reader.py"),
             "--input",
@@ -208,7 +219,12 @@ def main():
             str(REPORTS_DIR),
             "--limit",
             str(args.shortlist_top_n),
-        ])
+        ]
+        # Pass explicit sleep only when the user set it; otherwise let
+        # qualitative_llm_reader pick the provider-aware default from .env.
+        if args.llm_sleep is not None:
+            qualitative_cmd += ["--sleep", str(args.llm_sleep)]
+        run_command(qualitative_cmd)
 
     print("\nPipeline completed successfully.")
     print(f"Quant output:          {quant_output}")

@@ -25,10 +25,14 @@ DEFAULT_REPORTS_DIR = "reports/qualitative"
 DEFAULT_INPUT_FILE = "data/output/qualitative_llm_input.csv"
 DEFAULT_OUTPUT_FILE = "data/output/qualitative_llm_output.csv"
 
-MAX_DOCUMENT_CHARS = 20_000
+MAX_DOCUMENT_CHARS = 9_000
 # MAX_CHARS_PER_FILE is chosen so that at least 2-3 documents can contribute
-# meaningful content before hitting MAX_DOCUMENT_CHARS (20000 / 8000 = 2.5x).
-MAX_CHARS_PER_FILE = 8_000
+# meaningful content before hitting MAX_DOCUMENT_CHARS (9000 / 3000 = 3x).
+# These values are tuned for Groq free tier which has an 8000 TPM hard limit
+# per request. Indian financial documents tokenise at ~2.4 chars/token, so
+# 9000 chars ≈ 3750 tokens for documents + ~1650 for the prompt template
+# = ~5400 tokens total — comfortably under the 8000 TPM ceiling.
+MAX_CHARS_PER_FILE = 3_000
 SLEEP_BETWEEN_CALLS = 1.0
 
 
@@ -333,8 +337,23 @@ Return valid JSON exactly in this schema:
 
 
 # -----------------------------
-# LLM Client // qwen2.5:7b New not LLM
+# LLM Client
+# Supports: Ollama (local), Groq Cloud, Google Gemini Flash, OpenAI
+# All three use the OpenAI-compatible API — only .env changes required.
 # -----------------------------
+
+def detect_provider(base_url: str) -> str:
+    """Returns a human-readable provider name from the base URL."""
+    if not base_url:
+        return "OpenAI"
+    if "11434" in base_url or "ollama" in base_url.lower():
+        return "Ollama (local)"
+    if "groq.com" in base_url:
+        return "Groq Cloud"
+    if "googleapis.com" in base_url:
+        return "Google Gemini"
+    return f"Custom ({base_url})"
+
 
 def create_llm_client() -> Tuple[OpenAI, str]:
     load_dotenv()
@@ -348,7 +367,36 @@ def create_llm_client() -> Tuple[OpenAI, str]:
     else:
         client = OpenAI(api_key=api_key)
 
+    provider = detect_provider(base_url or "")
+    print(f"LLM provider : {provider}")
+    print(f"LLM model    : {model}")
+
     return client, model
+
+
+def recommended_sleep_for_provider(base_url: str) -> float:
+    """
+    Returns a safe default sleep (seconds) between LLM calls based on provider.
+    These are conservative defaults for free-tier rate limits:
+      - Ollama: no limit, 1s is fine
+      - Groq  : ~30 RPM on free tier  → 3s between calls
+      - Gemini: 15 RPM on free tier   → 5s between calls
+    Can be overridden via LLM_SLEEP env var or --sleep CLI arg.
+    """
+    env_override = os.getenv("LLM_SLEEP")
+    if env_override:
+        try:
+            return float(env_override)
+        except ValueError:
+            pass
+
+    if not base_url:
+        return 1.0
+    if "groq.com" in base_url:
+        return 3.0
+    if "googleapis.com" in base_url:
+        return 5.0
+    return 1.0
 
 
 def call_llm(client: OpenAI, model: str, prompt: str) -> Dict:
@@ -560,9 +608,17 @@ def run_qualitative_pipeline(
     docs_dir: str,
     reports_dir: str,
     limit: Optional[int],
-    sleep_seconds: float,
+    sleep_seconds: Optional[float],
 ):
+    load_dotenv()
     client, model = create_llm_client()
+
+    # If caller did not provide an explicit sleep, use the provider-aware default.
+    if sleep_seconds is None:
+        sleep_seconds = recommended_sleep_for_provider(
+            os.getenv("OPENAI_BASE_URL", "")
+        )
+        print(f"LLM sleep    : {sleep_seconds}s (provider default — override with --sleep or LLM_SLEEP)")
 
     df = pd.read_csv(input_file)
 
@@ -751,8 +807,12 @@ def main():
     parser.add_argument(
         "--sleep",
         type=float,
-        default=SLEEP_BETWEEN_CALLS,
-        help="Sleep between LLM calls.",
+        default=None,
+        help=(
+            "Sleep between LLM calls in seconds. "
+            "If not set, uses a provider-aware default (Ollama=1, Groq=3, Gemini=5). "
+            "Can also be set via LLM_SLEEP env var in .env."
+        ),
     )
 
     args = parser.parse_args()

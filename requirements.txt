@@ -5,3 +5,11 @@ beautifulsoup4
 openai
 python-dotenv
 pypdf
+
+# --- Optional: install only if using Groq Cloud ---
+# groq
+# (not required — the openai package already works with Groq's OpenAI-compatible endpoint)
+
+# --- Optional: install only if using Google Gemini natively ---
+# google-generativeai
+# (not required — the openai package already works with Gemini's OpenAI-compatible endpoint)
