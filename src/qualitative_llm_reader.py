@@ -609,6 +609,7 @@ def run_qualitative_pipeline(
     reports_dir: str,
     limit: Optional[int],
     sleep_seconds: Optional[float],
+    resume: bool = False,
 ):
     load_dotenv()
     client, model = create_llm_client()
@@ -624,6 +625,19 @@ def run_qualitative_pipeline(
 
     if limit:
         df = df.head(limit)
+
+    # Resume mode: load existing output and skip stocks already successfully analyzed.
+    existing_results: list = []
+    if resume and os.path.exists(output_file):
+        existing_df = pd.read_csv(output_file)
+        already_done = existing_df[existing_df["qualitative_score"].notna()]
+        already_done_symbols = set(already_done["symbol"].tolist())
+        existing_results = already_done.to_dict("records")
+        skip_count = len(already_done_symbols)
+        df = df[~df["symbol"].isin(already_done_symbols)].reset_index(drop=True)
+        print(f"Resume mode  : {skip_count} stocks already done, {len(df)} remaining to process.")
+        if df.empty:
+            print("All stocks already analyzed. Nothing to do.")
 
     results = []
 
@@ -703,7 +717,7 @@ def run_qualitative_pipeline(
 
         time.sleep(sleep_seconds)
 
-    output_df = pd.DataFrame(results)
+    output_df = pd.DataFrame(existing_results + results)
 
     if not output_df.empty and "final_score" in output_df.columns:
         output_df = output_df.sort_values(
@@ -815,6 +829,16 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip stocks already successfully analyzed in the output CSV. "
+            "Useful after a rate-limit error to continue where you left off."
+        ),
+    )
+
     args = parser.parse_args()
 
     limit = None if args.limit == 0 else args.limit
@@ -826,6 +850,7 @@ def main():
         reports_dir=args.reports_dir,
         limit=limit,
         sleep_seconds=args.sleep,
+        resume=args.resume,
     )
 
 

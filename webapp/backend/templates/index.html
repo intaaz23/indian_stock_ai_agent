@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Indian Stock AI Agent</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    .row { margin-bottom: 12px; }
+    input { padding: 6px; width: 90px; margin-right: 8px; }
+    button { padding: 8px 12px; margin-right: 8px; cursor: pointer; }
+    #status { margin: 12px 0; font-weight: bold; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+    th { background: #1f4e78; color: #fff; }
+    tr:nth-child(even) { background: #f8fbff; }
+    img { max-width: 100%; border: 1px solid #ccc; margin-top: 16px; }
+    .small { color: #555; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h2>Indian Stock AI Agent - Demo</h2>
+
+  <div class="row">
+    <label>Top N:</label>
+    <input id="topN" type="number" value="20" min="1" max="100" />
+    <label>Limit:</label>
+    <input id="limitN" type="number" value="20" min="1" max="200" />
+    <button onclick="runAnalysis()">Run Analysis</button>
+    <button onclick="loadResults()">Load Latest Results</button>
+    <button onclick="loadImage()">Show PNG Report</button>
+  </div>
+
+  <div id="status">Status: Idle</div>
+  <div class="small" id="jobId"></div>
+
+  <div id="tableContainer"></div>
+  <div id="imageContainer"></div>
+
+  <script>
+    let currentJobId = null;
+
+    async function runAnalysis() {
+      const top_n = parseInt(document.getElementById("topN").value || "20");
+      const limit = parseInt(document.getElementById("limitN").value || "20");
+
+      document.getElementById("status").innerText = "Status: submitting job...";
+      document.getElementById("jobId").innerText = "";
+
+      const res = await fetch("/run-analysis", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ top_n, limit })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById("status").innerText = "Status: Failed to submit";
+        alert(data.detail || "Failed");
+        return;
+      }
+
+      currentJobId = data.job_id;
+      document.getElementById("status").innerText = `Status: ${data.status}`;
+      document.getElementById("jobId").innerText = `Job ID: ${currentJobId}`;
+
+      pollStatus(currentJobId);
+    }
+
+    async function pollStatus(jobId) {
+      const timer = setInterval(async () => {
+        const res = await fetch(`/job-status/${jobId}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          document.getElementById("status").innerText = "Status: error checking job";
+          clearInterval(timer);
+          return;
+        }
+
+        document.getElementById("status").innerText = `Status: ${data.status} | ${data.message}`;
+
+        if (data.status === "success") {
+          clearInterval(timer);
+          await loadResults();
+          await loadImage();
+        } else if (data.status === "failed") {
+          clearInterval(timer);
+          alert(`Job failed: ${data.error || "Unknown error"}`);
+        }
+      }, 2000);
+    }
+
+    async function loadResults() {
+      const top_n = parseInt(document.getElementById("topN").value || "20");
+      const res = await fetch(`/latest-results?top_n=${top_n}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.detail || "No results");
+        return;
+      }
+
+      renderTable(data.results);
+    }
+
+    function renderTable(rows) {
+      const box = document.getElementById("tableContainer");
+      if (!rows || rows.length === 0) {
+        box.innerHTML = "<p>No rows found.</p>";
+        return;
+      }
+
+      const cols = Object.keys(rows[0]);
+      let html = "<table><thead><tr>";
+      cols.forEach(c => html += `<th>${c}</th>`);
+      html += "</tr></thead><tbody>";
+
+      rows.forEach(r => {
+        html += "<tr>";
+        cols.forEach(c => html += `<td>${r[c] ?? ""}</td>`);
+        html += "</tr>";
+      });
+      html += "</tbody></table>";
+      box.innerHTML = html;
+    }
+
+    async function loadImage() {
+      const imgUrl = `/latest-report-image?t=${Date.now()}`;
+      document.getElementById("imageContainer").innerHTML = `<h3>PNG Report</h3><img src="${imgUrl}" alt="Final Report PNG"/>`;
+    }
+  </script>
+</body>
+</html>

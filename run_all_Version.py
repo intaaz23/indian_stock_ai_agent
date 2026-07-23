@@ -118,6 +118,16 @@ def main():
         help="Skip the final PNG report generation step.",
     )
 
+    parser.add_argument(
+        "--resume-qualitative",
+        action="store_true",
+        help=(
+            "Resume qualitative LLM step: skip stocks already successfully analyzed "
+            "in the existing output CSV. Use this after a rate-limit error to continue "
+            "where you left off without re-spending tokens on completed stocks."
+        ),
+    )
+
     args = parser.parse_args()
 
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -231,6 +241,8 @@ def main():
         # qualitative_llm_reader pick the provider-aware default from .env.
         if args.llm_sleep is not None:
             qualitative_cmd += ["--sleep", str(args.llm_sleep)]
+        if args.resume_qualitative:
+            qualitative_cmd += ["--resume"]
         run_command(qualitative_cmd)
 
     # Step 6: Generate final PNG investor report.

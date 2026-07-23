@@ -206,7 +206,7 @@ def main():
     plt.savefig(OUTPUT_PNG, dpi=320, bbox_inches="tight")  # higher dpi for less blur
     plt.close()
 
-    print(f"✅ PNG report generated: {OUTPUT_PNG}")
+    print(f" PNG report generated: {OUTPUT_PNG}")
 
 
 if __name__ == "__main__":
