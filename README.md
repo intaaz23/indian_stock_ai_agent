@@ -121,38 +121,89 @@ Before any investment decision, manually verify:
 This tool is only for research and learning.  
 Do not make investment decisions based only on this output.
 
-## For my(Intaaz) understnding 
+## For my (Intaaz) understanding
 
-python .\src\nse_free_quant_agent.py --limit 0 --min-market-cap-cr 20000 --shortlist-top-n 50 --disable-screener-merge
+The pipeline runs in 6 steps. Steps 1-3 are a two-pass quant process:
 
-python .\src\screener_fundamentals_collector.py --input .\data\output\qualitative_llm_input.csv --limit 50 --overwrite
+**Step 1** — `nse_free_quant_agent.py --disable-screener-merge`  
+Scans the full NSE universe (~2000 stocks) via yfinance. Filters by market cap ≥ ₹20,000 Cr. Outputs the top 50 candidates using yfinance-only scores.
 
-python .\src\nse_free_quant_agent.py --limit 0 --min-market-cap-cr 20000 --shortlist-top-n 20
+**Step 2** — `screener_fundamentals_collector.py`  
+Scrapes Screener.in only for the top 50 candidates (not all 2000). Collects ROCE, 5Y CAGR, promoter holding/pledge, FII/DII trend, quarterly consistency.
 
-Why this 3-step process is useful
-Step #1 finds best candidates using fast/free yfinance data.
-Step #2 collects deeper Screener structured data only for top 50, not all 2000 stocks.
-Step #3 reranks those candidates using:
-yfinance score
-Screener score
-India-specific metrics
-promoter/shareholding data
-ROCE/5Y CAGR/FCF/quarter trend
-This is efficient and avoids scraping Screener for the full NSE universe.
+**Step 3** — `nse_free_quant_agent.py --rerank-from-cache`  
+Re-scores all 50 using the combined formula:
+`investor_master_score = 0.70 × base_quant_score + 0.30 × enhanced_screener_score`
+Selects the final top 20.
+
+**Step 4** — `download_screener_docs.py`  
+Downloads annual reports, concalls, and presentations for the top 20 into `data/docs/SYMBOL/`.
+
+**Step 5** — `qualitative_llm_reader.py`  
+Sends each company's documents + financial metrics to the LLM (Groq/Gemini/Ollama).
+Produces a qualitative score (0-100), rating, bull/bear case, governance flags, and final decision.
+
+**Step 6** — `print_finallist.py`  
+Reads `qualitative_llm_output.csv` and renders a colour-coded PNG table:
+- Green = Strong Buy zone
+- Yellow = Accumulate zone
+- Red = Expensive zone
 
 ## Finally the run command flow
 
-python .\src\nse_free_quant_agent.py --limit 0 --min-market-cap-cr 20000 --shortlist-top-n 50 --disable-screener-merge **********RUN ONCE PER DAY****************
+### Option A — One command (recommended)
 
+```bash
+python run_all_Version.py --screener-candidates 50 --shortlist-top-n 20 --min-market-cap-cr 20000
+```
+
+This runs all 6 steps in order and generates the final PNG automatically:
+
+```
+Step 1 → yfinance scan: full NSE universe, filter ≥ ₹20,000 Cr, top 50 candidates
+Step 2 → Screener.in: fetch fundamentals for top 50 (ROCE, 5Y CAGR, promoter, FII/DII)
+Step 3 → Rerank: combine yfinance + Screener scores, select final top 20
+Step 4 → Download: annual reports / concalls / presentations for top 20
+Step 5 → LLM: qualitative analysis via Groq / Gemini / Ollama
+Step 6 → Report: generate data/output/final_investor_report.png
+```
+
+Skip flags (add any combination):
+```bash
+--skip-screener-collect    # skip Step 2 (use cached screener_fundamentals.csv)
+--skip-doc-download        # skip Step 4
+--skip-qualitative         # skip Step 5 + 6
+--skip-report              # skip Step 6 only (keep qualitative output, skip PNG)
+```
+
+---
+
+### Option B — Step by step (for debugging or partial reruns)
+
+```bash
+# Step 1 — Full NSE yfinance scan. RUN ONCE PER DAY.
+python .\src\nse_free_quant_agent.py --limit 0 --min-market-cap-cr 20000 --shortlist-top-n 50 --disable-screener-merge
+
+# Step 2 — Collect Screener fundamentals for top 50
 python .\src\screener_fundamentals_collector.py --input .\data\output\qualitative_llm_input.csv --limit 50 --overwrite
 
+# Step 3 — Rerank using Screener data, select final top 20
 python .\src\nse_free_quant_agent.py --rerank-from-cache --min-market-cap-cr 20000 --shortlist-top-n 20
 
+# Step 4 — Download annual reports / concalls / presentations
 python .\src\download_screener_docs.py --input .\data\output\qualitative_llm_input.csv --output-dir .\data\docs --limit 20
 
+# Step 5 — LLM qualitative analysis
 python .\src\qualitative_llm_reader.py --input .\data\output\qualitative_llm_input.csv --output .\data\output\qualitative_llm_output.csv --docs-dir .\data\docs --reports-dir .\reports\qualitative --limit 20
 
-python .\src\qualitative_llm_reader.py --input .\data\output\qualitative_llm_input.csv --output .\data\output\qualitative_llm_output.csv --docs-dir .\data\docs --reports-dir .\reports\qualitative --limit 20
+# Step 6 — Generate final PNG report
+python .\src\print_finallist.py --input .\data\output\qualitative_llm_output.csv --output .\data\output\final_investor_report.png --top-n 20
+```
+
+Why the 3-step quant process (Steps 1-3)?
+- Step 1 uses fast/free yfinance data to scan the full ~2000 stock NSE universe
+- Step 2 fetches deep Screener data only for the top 50, not all 2000 stocks (efficient)
+- Step 3 reranks using: yfinance score + Screener ROCE/5Y CAGR/FCF/promoter/quarter trend
 
 ## OUTPUT
 

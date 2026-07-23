@@ -112,6 +112,12 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--skip-report",
+        action="store_true",
+        help="Skip the final PNG report generation step.",
+    )
+
     args = parser.parse_args()
 
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -124,6 +130,7 @@ def main():
     qualitative_input = OUTPUT_DIR / "qualitative_llm_input.csv"
     qualitative_output = OUTPUT_DIR / "qualitative_llm_output.csv"
     docs_summary = OUTPUT_DIR / "downloaded_docs_summary.csv"
+    final_report_png = OUTPUT_DIR / "final_investor_report.png"
 
     python_exe = sys.executable
 
@@ -226,12 +233,27 @@ def main():
             qualitative_cmd += ["--sleep", str(args.llm_sleep)]
         run_command(qualitative_cmd)
 
+    # Step 6: Generate final PNG investor report.
+    if not args.skip_qualitative and not args.skip_report:
+        run_command([
+            python_exe,
+            str(SRC_DIR / "print_finallist.py"),
+            "--input",
+            str(qualitative_output),
+            "--output",
+            str(final_report_png),
+            "--top-n",
+            str(args.shortlist_top_n),
+        ])
+
     print("\nPipeline completed successfully.")
     print(f"Quant output:          {quant_output}")
     print(f"Screener fundamentals: {screener_fundamentals}")
     print(f"Qualitative input:     {qualitative_input}")
     print(f"Qualitative output:    {qualitative_output}")
     print(f"Reports folder:        {REPORTS_DIR}")
+    if not args.skip_qualitative and not args.skip_report:
+        print(f"Final PNG report:      {final_report_png}")
 
 
 if __name__ == "__main__":

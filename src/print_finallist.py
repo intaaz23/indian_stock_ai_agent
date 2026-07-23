@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -209,4 +210,27 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Generate final investor report PNG from qualitative LLM output."
+    )
+    parser.add_argument(
+        "--input",
+        default=str(INPUT_CSV),
+        help="Path to qualitative_llm_output.csv.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(OUTPUT_PNG),
+        help="Path to save the output PNG report.",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=TOP_N,
+        help="Number of top stocks to include in the report.",
+    )
+    cli = parser.parse_args()
+    INPUT_CSV = Path(cli.input)
+    OUTPUT_PNG = Path(cli.output)
+    TOP_N = cli.top_n
     main()
