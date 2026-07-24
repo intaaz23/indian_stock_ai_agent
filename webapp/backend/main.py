@@ -1,22 +1,25 @@
+# --- ADD/UPDATE IMPORTS AT TOP ---
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Lock
 from datetime import datetime
 import sqlite3
 import subprocess
 import uuid
 import json
 import sys
+import time
+
 
 # -----------------------------
 # Paths (repo-specific)
 # -----------------------------
 BACKEND_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BACKEND_DIR.parents[1]  # indian_stock_ai_agent/
+REPO_ROOT = BACKEND_DIR.parents[1]  # IMPORTANT: repo root
 SRC_DIR = REPO_ROOT / "src"
 DATA_OUTPUT_DIR = REPO_ROOT / "data" / "output"
 DOCS_DIR = REPO_ROOT / "data" / "docs"
@@ -29,7 +32,7 @@ FINAL_PNG = DATA_OUTPUT_DIR / "final_investor_report.png"
 DB_PATH = BACKEND_DIR / "jobs.db"
 TEMPLATES = Jinja2Templates(directory=str(BACKEND_DIR / "templates"))
 
-app = FastAPI(title="Indian Stock AI Agent Web API", version="1.0.0")
+app = FastAPI(title="Indian Stock AI Agent Web API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # tighten in production
@@ -38,12 +41,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- NEW: run lock (single active run) ---
+RUN_LOCK = Lock()
+
+
 # -----------------------------
 # Models
 # -----------------------------
 class RunRequest(BaseModel):
     top_n: int = Field(default=20, ge=1, le=100)
     limit: int = Field(default=20, ge=1, le=200)
+
 
 # -----------------------------
 # SQLite helpers
@@ -52,6 +60,7 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     conn = get_conn()
@@ -65,6 +74,9 @@ def init_db():
             error TEXT,
             created_at TEXT,
             updated_at TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            duration_seconds REAL,
             cmd1_log TEXT,
             cmd2_log TEXT
         )
@@ -72,15 +84,22 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def create_job(job_id: str, top_n: int, limit_n: int):
     now = datetime.utcnow().isoformat()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO jobs(job_id, status, message, top_n, limit_n, error, created_at, updated_at, cmd1_log, cmd2_log)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (job_id, "queued", "Job created", top_n, limit_n, None, now, now, "", ""))
+        INSERT INTO jobs(
+            job_id, status, message, top_n, limit_n, error,
+            created_at, updated_at, started_at, ended_at, duration_seconds,
+            cmd1_log, cmd2_log
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (job_id, "queued", "Job created", top_n, limit_n, None,
+          now, now, None, None, None, "", ""))
     conn.commit()
     conn.close()
+
 
 def update_job(job_id: str, **kwargs):
     if not kwargs:
@@ -95,25 +114,73 @@ def update_job(job_id: str, **kwargs):
     conn.commit()
     conn.close()
 
+
 def get_job(job_id: str):
     conn = get_conn()
     row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
+
+# --- NEW: active job check ---
+def get_active_job():
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT * FROM jobs
+        WHERE status IN ('queued', 'running')
+        ORDER BY created_at DESC
+        LIMIT 1
+    """).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# --- NEW: latest jobs list ---
+def list_jobs(limit: int = 20):
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT job_id, status, message, top_n, limit_n, error,
+               created_at, started_at, ended_at, duration_seconds
+        FROM jobs
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # -----------------------------
 # Core runner
 # -----------------------------
 def run_pipeline(job_id: str, top_n: int, limit_n: int):
+    lock_acquired = False
+    start_ts = time.time()
+
     try:
-        update_job(job_id, status="running", message="Running qualitative_llm_reader.py")
+        # acquire lock
+        lock_acquired = RUN_LOCK.acquire(blocking=False)
+        if not lock_acquired:
+            update_job(
+                job_id,
+                status="failed",
+                message="Another run is in progress. Please retry after it completes.",
+                error="run_locked"
+            )
+            return
+
+        update_job(
+            job_id,
+            status="running",
+            message="Running qualitative_llm_reader.py",
+            started_at=datetime.utcnow().isoformat()
+        )
 
         # Ensure folders exist
         DATA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Command 1 (exactly your command, made portable via sys.executable)
+        # Command 1
         cmd1 = [
             sys.executable,
             str(SRC_DIR / "qualitative_llm_reader.py"),
@@ -128,7 +195,10 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int):
             cmd1,
             cwd=str(REPO_ROOT),
             capture_output=True,
-            text=True
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False
         )
 
         cmd1_log = f"STDOUT:\n{res1.stdout}\n\nSTDERR:\n{res1.stderr}"
@@ -142,7 +212,7 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int):
 
         update_job(job_id, message="Running print_finallist.py")
 
-        # Command 2 (exactly your command structure)
+        # Command 2
         cmd2 = [
             sys.executable,
             str(SRC_DIR / "print_finallist.py"),
@@ -155,22 +225,71 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int):
             cmd2,
             cwd=str(REPO_ROOT),
             capture_output=True,
-            text=True
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False
         )
 
         cmd2_log = f"STDOUT:\n{res2.stdout}\n\nSTDERR:\n{res2.stderr}"
         update_job(job_id, cmd2_log=cmd2_log)
 
-        if res2.returncode != 0:
-            raise RuntimeError(f"print_finallist failed (code {res2.returncode})")
-
+        # success classification
+        # 1) hard fail if png missing
         if not FINAL_PNG.exists():
-            raise RuntimeError(f"Expected PNG not found: {FINAL_PNG}")
+            raise RuntimeError(f"print_finallist failed and PNG not found (code {res2.returncode})")
 
-        update_job(job_id, status="success", message="Analysis completed successfully")
+        # 2) if cmd2 non-zero but png exists => partial_success
+        if res2.returncode != 0:
+            duration = round(time.time() - start_ts, 2)
+            update_job(
+                job_id,
+                status="partial_success",
+                message="PNG generated, but print_finallist returned non-zero exit code.",
+                error=f"print_finallist_exit_{res2.returncode}",
+                ended_at=datetime.utcnow().isoformat(),
+                duration_seconds=duration
+            )
+            return
+
+        # 3) detect qualitative rate-limit warning from cmd1 logs
+        lower_log = (res1.stdout + "\n" + res1.stderr).lower()
+        if "rate limit" in lower_log or "429" in lower_log:
+            duration = round(time.time() - start_ts, 2)
+            update_job(
+                job_id,
+                status="partial_success",
+                message="Completed with rate-limit warnings in qualitative step.",
+                error="qualitative_rate_limit_warning",
+                ended_at=datetime.utcnow().isoformat(),
+                duration_seconds=duration
+            )
+            return
+
+        # clean success
+        duration = round(time.time() - start_ts, 2)
+        update_job(
+            job_id,
+            status="success",
+            message="Analysis completed successfully",
+            ended_at=datetime.utcnow().isoformat(),
+            duration_seconds=duration
+        )
 
     except Exception as e:
-        update_job(job_id, status="failed", message="Analysis failed", error=str(e))
+        duration = round(time.time() - start_ts, 2)
+        update_job(
+            job_id,
+            status="failed",
+            message="Analysis failed",
+            error=str(e),
+            ended_at=datetime.utcnow().isoformat(),
+            duration_seconds=duration
+        )
+    finally:
+        if lock_acquired:
+            RUN_LOCK.release()
+
 
 # -----------------------------
 # API routes
@@ -179,17 +298,28 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int):
 def startup():
     init_db()
 
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return TEMPLATES.TemplateResponse("index.html", {"request": request})
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
 @app.post("/run-analysis")
 def run_analysis(payload: RunRequest):
-    # Pre-check key files
+    # route-level lock guard (friendly early rejection)
+    active = get_active_job()
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another job is active: {active['job_id']} (status={active['status']})"
+        )
+
+    # pre-check files
     if not (SRC_DIR / "qualitative_llm_reader.py").exists():
         raise HTTPException(status_code=404, detail="src/qualitative_llm_reader.py not found")
     if not (SRC_DIR / "print_finallist.py").exists():
@@ -209,6 +339,7 @@ def run_analysis(payload: RunRequest):
         "message": "Pipeline started in background"
     }
 
+
 @app.get("/job-status/{job_id}")
 def job_status(job_id: str):
     job = get_job(job_id)
@@ -216,24 +347,27 @@ def job_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
+
+# --- NEW: jobs history endpoint ---
+@app.get("/jobs")
+def jobs(limit: int = Query(default=20, ge=1, le=100)):
+    return {"count": limit, "items": list_jobs(limit=limit)}
+
+
 @app.get("/latest-report-image")
 def latest_report_image():
     if not FINAL_PNG.exists():
         raise HTTPException(status_code=404, detail="No report image found. Run analysis first.")
     return FileResponse(str(FINAL_PNG), media_type="image/png", filename="final_investor_report.png")
 
+
 @app.get("/latest-results")
 def latest_results(top_n: int = Query(default=20, ge=1, le=100)):
-    """
-    Reads qualitative_llm_output.csv and returns top_n rows by final_score
-    (useful for table view in UI).
-    """
     import csv
 
     if not QUAL_OUTPUT.exists():
         raise HTTPException(status_code=404, detail="qualitative_llm_output.csv not found. Run analysis first.")
 
-    # Lightweight parse without pandas dependency
     rows = []
     with open(QUAL_OUTPUT, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -243,13 +377,12 @@ def latest_results(top_n: int = Query(default=20, ge=1, le=100)):
     def fnum(x):
         try:
             return float(x)
-        except:
+        except Exception:
             return -1e18
 
     rows.sort(key=lambda r: fnum(r.get("final_score", "")), reverse=True)
     rows = rows[:top_n]
 
-    # compact investor fields
     wanted = [
         "symbol", "sector", "price", "market_cap_cr",
         "final_score", "quant_score", "qualitative_score",
@@ -272,6 +405,7 @@ def latest_results(top_n: int = Query(default=20, ge=1, le=100)):
 
     return {"count": len(out), "results": out}
 
+
 @app.get("/job-logs/{job_id}")
 def job_logs(job_id: str):
     job = get_job(job_id)
@@ -281,5 +415,6 @@ def job_logs(job_id: str):
         "job_id": job_id,
         "cmd1_log": job.get("cmd1_log", ""),
         "cmd2_log": job.get("cmd2_log", ""),
-        "error": job.get("error")
+        "error": job.get("error"),
+        "status": job.get("status")
     }
