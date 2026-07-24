@@ -5,6 +5,7 @@ beautifulsoup4
 openai
 python-dotenv
 pypdf
+matplotlib
 
 # --- Optional: install only if using Groq Cloud ---
 # groq
