@@ -16,6 +16,7 @@ env/
 # Generated data files
 data/input/*
 data/output/*
+!data/output/qualitative_llm_input.csv
 data/docs/*
 
 # Keep folder placeholders if needed

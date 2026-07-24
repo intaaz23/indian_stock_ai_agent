@@ -28,6 +28,9 @@ REPORTS_DIR = REPO_ROOT / "reports" / "qualitative"
 QUAL_INPUT = DATA_OUTPUT_DIR / "qualitative_llm_input.csv"
 QUAL_OUTPUT = DATA_OUTPUT_DIR / "qualitative_llm_output.csv"
 FINAL_PNG = DATA_OUTPUT_DIR / "final_investor_report.png"
+DATA_OUT = REPO_ROOT / "data" / "output"
+FINAL_CSV = DATA_OUT / "final_investor_report.csv"
+FINAL_PNG = DATA_OUT / "final_investor_report.png"
 
 DB_PATH = BACKEND_DIR / "jobs.db"
 TEMPLATES = Jinja2Templates(directory=str(BACKEND_DIR / "templates"))
@@ -217,7 +220,7 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
             sys.executable,
             str(SRC_DIR / "print_finallist.py"),
             "--input", str(QUAL_OUTPUT),
-            "--output", str(FINAL_PNG),
+            "--output", str(FINAL_CSV),
             "--top-n", str(top_n),
         ]
 
@@ -236,8 +239,8 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
 
         # success classification
         # 1) hard fail if png missing
-        if not FINAL_PNG.exists():
-            raise RuntimeError(f"print_finallist failed and PNG not found (code {res2.returncode})")
+        if not FINAL_CSV.exists():
+            raise RuntimeError(f"print_finallist failed and CSV not found (code {res2.returncode})")
 
         # 2) if cmd2 non-zero but png exists => partial_success
         if res2.returncode != 0:
