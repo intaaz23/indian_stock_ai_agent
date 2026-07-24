@@ -220,7 +220,7 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
             sys.executable,
             str(SRC_DIR / "print_finallist.py"),
             "--input", str(QUAL_OUTPUT),
-            "--output", str(FINAL_CSV),
+            "--output", str(FINAL_PNG),
             "--top-n", str(top_n),
         ]
 
@@ -239,8 +239,8 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
 
         # success classification
         # 1) hard fail if png missing
-        if not FINAL_CSV.exists():
-            raise RuntimeError(f"print_finallist failed and CSV not found (code {res2.returncode})")
+        if not FINAL_PNG.exists():
+            raise RuntimeError(f"print_finallist failed and PNG not found (code {res2.returncode})")
 
         # 2) if cmd2 non-zero but png exists => partial_success
         if res2.returncode != 0:
