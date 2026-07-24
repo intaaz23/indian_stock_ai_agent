@@ -152,7 +152,7 @@ def list_jobs(limit: int = 20):
 # -----------------------------
 # Core runner
 # -----------------------------
-def run_pipeline(job_id: str, top_n: int, limit_n: int):
+def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
     lock_acquired = False
     start_ts = time.time()
 
@@ -184,7 +184,7 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int):
         cmd1 = [
             sys.executable,
             str(SRC_DIR / "qualitative_llm_reader.py"),
-            "--input", str(QUAL_INPUT),
+            "--input", str(input_csv_path),
             "--output", str(QUAL_OUTPUT),
             "--docs-dir", str(DOCS_DIR),
             "--reports-dir", str(REPORTS_DIR),
@@ -324,21 +324,35 @@ def run_analysis(payload: RunRequest):
         raise HTTPException(status_code=404, detail="src/qualitative_llm_reader.py not found")
     if not (SRC_DIR / "print_finallist.py").exists():
         raise HTTPException(status_code=404, detail="src/print_finallist.py not found")
-    if not QUAL_INPUT.exists():
-        raise HTTPException(status_code=404, detail=f"Input CSV not found: {QUAL_INPUT}")
+
+    # NEW: fallback input discovery
+    candidate_inputs = [
+        REPO_ROOT / "data" / "output" / "qualitative_llm_input.csv",
+        REPO_ROOT / "data" / "qualitative_llm_input.csv",
+    ]
+    input_csv = next((p for p in candidate_inputs if p.exists()), None)
+    if not input_csv:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Input CSV not found. Tried: {[str(p) for p in candidate_inputs]}"
+        )
 
     job_id = str(uuid.uuid4())
     create_job(job_id, payload.top_n, payload.limit)
 
-    t = Thread(target=run_pipeline, args=(job_id, payload.top_n, payload.limit), daemon=True)
+    # CHANGED: pass input_csv path to pipeline
+    t = Thread(
+        target=run_pipeline,
+        args=(job_id, payload.top_n, payload.limit, str(input_csv)),
+        daemon=True
+    )
     t.start()
 
     return {
         "job_id": job_id,
         "status": "queued",
-        "message": "Pipeline started in background"
+        "message": f"Pipeline started in background (input={input_csv})"
     }
-
 
 @app.get("/job-status/{job_id}")
 def job_status(job_id: str):
