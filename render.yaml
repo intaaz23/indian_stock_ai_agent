@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: indian-stock-ai-agent
+    runtime: python
+    plan: free
+    autoDeploy: true
+
+    # Repo root
+    rootDir: .
+
+    # Install both repo deps and backend web deps
+    buildCommand: |
+      pip install -r requirements.txt
+      pip install -r webapp/backend/requirements.txt
+
+    # Start FastAPI
+    startCommand: uvicorn webapp.backend.main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      # Required
+      - key: GROQ_API_KEY
+        sync: false
+
+      # Optional defaults (override in Render UI if needed)
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: LLM_SLEEP
+        value: "3"
