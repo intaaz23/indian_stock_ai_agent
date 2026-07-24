@@ -346,26 +346,27 @@ def detect_provider(base_url: str) -> str:
     """Returns a human-readable provider name from the base URL."""
     if not base_url:
         return "OpenAI"
-    if "11434" in base_url or "ollama" in base_url.lower():
-        return "Ollama (local)"
     if "groq.com" in base_url:
         return "Groq Cloud"
     if "googleapis.com" in base_url:
         return "Google Gemini"
+    if "11434" in base_url or "ollama" in base_url.lower():
+        return "Ollama (local)"
     return f"Custom ({base_url})"
 
 
 def create_llm_client() -> Tuple[OpenAI, str]:
     load_dotenv()
 
-    api_key = os.getenv("OPENAI_API_KEY", "ollama")
-    model = os.getenv("OPENAI_MODEL", "qwen2.5:7b")
-    base_url = os.getenv("OPENAI_BASE_URL")
+    # Prefer explicit OPENAI_*; fallback to GROQ_* for convenience
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
+    model = os.getenv("OPENAI_MODEL") or os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("GROQ_BASE_URL") or "https://api.groq.com/openai/v1"
 
-    if base_url:
-        client = OpenAI(api_key=api_key, base_url=base_url)
-    else:
-        client = OpenAI(api_key=api_key)
+    if not api_key:
+        raise RuntimeError("Missing API key: set OPENAI_API_KEY or GROQ_API_KEY")
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     provider = detect_provider(base_url or "")
     print(f"LLM provider : {provider}")
