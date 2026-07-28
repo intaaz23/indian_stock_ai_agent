@@ -1,0 +1,228 @@
+:root {
+  --bg: #f6f8fc;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --border: #e2e8f0;
+  --radius: 14px;
+  --shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+* { box-sizing: border-box; }
+body {
+  font-family: "Inter", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-container {
+  max-width: 1680px;
+}
+
+.card-clean {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  background: var(--card);
+}
+
+.section-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.kpi-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.kpi-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.kpi-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.badge-signal {
+  display: inline-block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  text-transform: capitalize;
+}
+.badge-signal.buy,
+.badge-signal.strong-buy {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+.badge-signal.watch,
+.badge-signal.hold {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+.badge-signal.avoid,
+.badge-signal.sell {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+.table-clean thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+  white-space: nowrap;
+}
+.table-clean tbody tr:hover {
+  background: #f8fbff;
+}
+
+.table-search {
+  max-width: 280px;
+}
+
+.chart-box {
+  height: 220px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  background: #fcfdff;
+}
+
+@media (max-width: 767px) {
+  .table-search { max-width: 100%; }
+}
+
+/* Typography polish */
+body { font-size: 15px; line-height: 1.15; }
+h1.h4 { font-size: 2.6rem; font-weight: 600; letter-spacing: -0.2px; color: #1f2a44; }
+.table-clean th { font-size: 1.02rem; font-weight: 650; }
+.table-clean td { font-size: 1rem; }
+
+/* Card polish */
+.card-clean { border-radius: 16px; }
+.section-title { font-weight: 700; }
+
+/* Prevent right-side clipping */
+.table-wrap { overflow-x: auto; }
+.table-clean { min-width: 1500px; }   /* keeps columns readable */
+.table-clean th, .table-clean td { white-space: nowrap; }
+
+/* Let long names wrap only in company column */
+.table-clean td:nth-child(3) { white-space: normal; min-width: 220px; }
+
+/* Wider screen for rich screener table */
+.app-container { max-width: 1680px; }
+.table-wrap { overflow-x: auto; }
+.table-clean { min-width: 1550px; }
+
+/* AI Score pill */
+.ai-score-pill {
+  display: inline-block;
+  min-width: 68px;
+  text-align: center;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  border: 1px solid transparent;
+}
+.ai-score-pill.score-high {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+.ai-score-pill.score-mid {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+.ai-score-pill.score-low {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+/* Verdict chips (already present? keep these definitive versions) */
+.badge-signal {
+  display: inline-block;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  text-transform: capitalize;
+}
+.badge-signal.buy {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+.badge-signal.watch {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+.badge-signal.avoid {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+/* Keep right-side important columns visible while horizontal scrolling */
+.table-clean th:nth-last-child(2),
+.table-clean td:nth-last-child(2),
+.table-clean th:last-child,
+.table-clean td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  z-index: 2;
+}
+.table-clean th:nth-last-child(2),
+.table-clean td:nth-last-child(2) {
+  right: 92px; /* width reserve for Verdict col */
+  z-index: 3;
+}
+
+/* Metric heat chips */
+.metric-chip {
+  display: inline-block;
+  min-width: 58px;
+  text-align: center;
+  padding: 0.2rem 0.45rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  border: 1px solid transparent;
+}
+.metric-good {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+.metric-mid {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+.metric-low {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}

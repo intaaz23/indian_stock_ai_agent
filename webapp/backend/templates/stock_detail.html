@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}{{ stock.symbol if stock else "Stock Detail" }} | Indian Stock AI{% endblock %}
+
+{% block content %}
+{% set s = stock or {} %}
+<div class="card card-clean mb-3">
+  <div class="card-body d-flex flex-column flex-md-row justify-content-between gap-3">
+    <div>
+      <h1 class="h4 mb-1">{{ s.company_name or s.symbol or "Stock" }}</h1>
+      <div class="text-muted">
+        {{ s.symbol or "-" }} • {{ s.sector or "-" }}
+      </div>
+    </div>
+    <div class="text-md-end">
+      <div class="h5 mb-1">₹ {{ s.cmp or "-" }}</div>
+      <div class="small text-muted">Updated: {{ s.updated_at or "N/A" }}</div>
+      {% set verdict = s.verdict or "Watch" %}
+      <div class="mt-2">
+        <span class="badge-signal {{ verdict|lower|replace(' ','-') }}">{{ verdict }}</span>
+        <span class="small text-muted ms-2">Confidence: {{ s.confidence or "-" }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  {% set kpis = [
+    ('PE', s.pe), ('ROE %', s.roe), ('ROCE %', s.roce), ('D/E', s.de),
+    ('OPM %', s.opm), ('Sales CAGR %', s.sales_cagr), ('Profit CAGR %', s.profit_cagr), ('FCF Trend', s.fcf_trend)
+  ] %}
+  {% for label, value in kpis %}
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card">
+      <div class="card-body">
+        <div class="kpi-label">{{ label }}</div>
+        <div class="kpi-value">{{ value if value is not none and value != "" else "-" }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card card-clean h-100">
+      <div class="card-body">
+        <h2 class="h6 section-title">AI Summary: Positives</h2>
+        <ul class="mb-0">
+          {% for p in (s.ai_positives or ["No positives generated yet."]) %}
+            <li>{{ p }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card card-clean h-100">
+      <div class="card-body">
+        <h2 class="h6 section-title">AI Summary: Risks</h2>
+        <ul class="mb-0">
+          {% for r in (s.ai_risks or ["No risks generated yet."]) %}
+            <li>{{ r }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-clean mt-3">
+  <div class="card-body">
+    <h2 class="h6 section-title">Financial Trends</h2>
+    <p class="text-muted small mb-3">Plug your chart library (Chart.js / ApexCharts) into these containers.</p>
+    <div class="row g-3">
+      <div class="col-12 col-lg-4"><div class="chart-box" id="revenueChart">Revenue chart placeholder</div></div>
+      <div class="col-12 col-lg-4"><div class="chart-box" id="profitChart">Profit chart placeholder</div></div>
+      <div class="col-12 col-lg-4"><div class="chart-box" id="marginChart">Margin chart placeholder</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-clean mt-3">
+  <div class="card-body">
+    <h2 class="h6 section-title">Peer Comparison</h2>
+    <div class="table-responsive">
+      <table class="table table-clean">
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>CMP</th>
+            <th>PE</th>
+            <th>ROE</th>
+            <th>D/E</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if peers and peers|length > 0 %}
+            {% for p in peers %}
+              <tr>
+                <td>{{ p.company_name or p.symbol }}</td>
+                <td>{{ p.cmp or "-" }}</td>
+                <td>{{ p.pe or "-" }}</td>
+                <td>{{ p.roe or "-" }}</td>
+                <td>{{ p.de or "-" }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" class="text-muted text-center">No peer data available.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

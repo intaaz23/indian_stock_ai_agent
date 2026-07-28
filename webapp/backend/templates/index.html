@@ -1,236 +1,186 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Indian Stock AI Agent</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 24px; }
-    .row { margin-bottom: 12px; }
-    input { padding: 6px; width: 90px; margin-right: 8px; }
-    button { padding: 8px 12px; margin-right: 8px; cursor: pointer; }
-    #status { margin: 12px 0; font-weight: bold; }
-    .small { color: #555; font-size: 12px; margin-top: 4px; }
+{% extends "base.html" %}
 
-    table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-    th { background: #1f4e78; color: #fff; }
-    tr:nth-child(even) { background: #f8fbff; }
+{% block title %}Screener | Indian Stock AI{% endblock %}
 
-    img { max-width: 100%; border: 1px solid #ccc; margin-top: 16px; }
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h4 mb-1">Fundamental Screener</h1>
+    <p class="text-muted mb-0">Filter Indian stocks and rank by AI score.</p>
+  </div>
+  <div class="text-muted small">
+    Last updated: {{ last_updated if last_updated else "N/A" }}
+  </div>
+</div>
 
-    .section-title { margin-top: 22px; margin-bottom: 8px; }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 12px;
-      color: #fff;
-      font-weight: 600;
-    }
-    .success { background: #2e7d32; }
-    .partial_success { background: #ef6c00; }
-    .failed { background: #c62828; }
-    .running { background: #1565c0; }
-    .queued { background: #6a1b9a; }
-  </style>
-</head>
-<body>
-  <h2>Indian Stock AI Agent - Demo</h2>
+<div class="row g-3">
+  <!-- Filters -->
+  <div class="col-12 col-lg-3">
+    <div class="card card-clean">
+      <div class="card-body">
+        <h2 class="h6 section-title">Filters</h2>
+        <form id="screenerForm" method="get" action="{{ url_for('index') }}">
+          <div class="mb-2">
+            <label class="form-label small">Sector</label>
+            <select class="form-select form-select-sm" name="sector">
+              <option value="">All</option>
+              {% for s in sectors or [] %}
+              <option value="{{ s }}" {% if request.args.get('sector') == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
 
-  <div class="row">
-    <label>Top N:</label>
-    <input id="topN" type="number" value="20" min="1" max="100" />
-    <label>Limit:</label>
-    <input id="limitN" type="number" value="20" min="1" max="200" />
-    <button id="runBtn" onclick="runAnalysis()">Run Analysis</button>
-    <button onclick="loadResults()">Load Latest Results</button>
-    <button onclick="loadImage()">Show PNG Report</button>
-    <button onclick="loadJobs()">Refresh Last Runs</button>
+          <div class="mb-2">
+            <label class="form-label small">Market Cap Min (Cr)</label>
+            <input class="form-control form-control-sm" type="number" step="any" name="mcap_min" value="{{ request.args.get('mcap_min','') }}">
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small">PE Max</label>
+            <input class="form-control form-control-sm" type="number" step="any" name="pe_max" value="{{ request.args.get('pe_max','') }}">
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small">ROE Min (%)</label>
+            <input class="form-control form-control-sm" type="number" step="any" name="roe_min" value="{{ request.args.get('roe_min','') }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small">Debt / Equity Max</label>
+            <input class="form-control form-control-sm" type="number" step="any" name="de_max" value="{{ request.args.get('de_max','') }}">
+          </div>
+
+          <button id="runScreenBtn" class="btn btn-primary btn-sm w-100" type="submit">Run Screen</button>
+        </form>
+      </div>
+    </div>
   </div>
 
-  <div id="status">Status: Idle</div>
-  <div class="small" id="jobId"></div>
-
-  <h3 class="section-title">Latest Results</h3>
-  <div id="tableContainer"></div>
-
-  <h3 class="section-title">PNG Report</h3>
-  <div id="imageContainer"></div>
-
-  <h3 class="section-title">Last Runs (Top 10)</h3>
-  <div id="jobsContainer"></div>
-
-  <script>
-    let currentJobId = null;
-
-    function statusBadge(status) {
-      const cls = ["success","partial_success","failed","running","queued"].includes(status)
-        ? status
-        : "queued";
-      return `<span class="badge ${cls}">${status}</span>`;
-    }
-
-    async function runAnalysis() {
-      const top_n = parseInt(document.getElementById("topN").value || "20");
-      const limit = parseInt(document.getElementById("limitN").value || "20");
-      const runBtn = document.getElementById("runBtn");
-
-      document.getElementById("status").innerText = "Status: submitting job...";
-      document.getElementById("jobId").innerText = "";
-
-      const res = await fetch("/run-analysis", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ top_n, limit })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        document.getElementById("status").innerText = "Status: submit failed";
-        alert(data.detail || "Failed to submit");
-        await loadJobs();
-        return;
-      }
-
-      currentJobId = data.job_id;
-      document.getElementById("status").innerText = `Status: ${data.status}`;
-      document.getElementById("jobId").innerText = `Job ID: ${currentJobId}`;
-      runBtn.disabled = true;
-
-      await loadJobs();
-      pollStatus(currentJobId);
-    }
-
-    async function pollStatus(jobId) {
-      const runBtn = document.getElementById("runBtn");
-
-      const timer = setInterval(async () => {
-        const res = await fetch(`/job-status/${jobId}`);
-        const data = await res.json();
-
-        if (!res.ok) {
-          document.getElementById("status").innerText = "Status: error checking job";
-          clearInterval(timer);
-          runBtn.disabled = false;
-          return;
-        }
-
-        document.getElementById("status").innerText = `Status: ${data.status} | ${data.message}`;
-
-        if (data.status === "success" || data.status === "partial_success") {
-          clearInterval(timer);
-          runBtn.disabled = false;
-          await loadResults();
-          await loadImage();
-          await loadJobs();
-        } else if (data.status === "failed") {
-          clearInterval(timer);
-          runBtn.disabled = false;
-          await loadJobs();
-          alert(`Job failed: ${data.error || "Unknown error"}`);
-        } else {
-          // queued/running
-          await loadJobs();
-        }
-      }, 2000);
-    }
-
-    async function loadResults() {
-      const top_n = parseInt(document.getElementById("topN").value || "20");
-      const res = await fetch(`/latest-results?top_n=${top_n}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        document.getElementById("tableContainer").innerHTML = "<p>No latest results yet.</p>";
-        return;
-      }
-
-      renderResultsTable(data.results);
-    }
-
-    function renderResultsTable(rows) {
-      const box = document.getElementById("tableContainer");
-      if (!rows || rows.length === 0) {
-        box.innerHTML = "<p>No rows found.</p>";
-        return;
-      }
-
-      const cols = Object.keys(rows[0]);
-      let html = "<table><thead><tr>";
-      cols.forEach(c => html += `<th>${c}</th>`);
-      html += "</tr></thead><tbody>";
-
-      rows.forEach(r => {
-        html += "<tr>";
-        cols.forEach(c => html += `<td>${r[c] ?? ""}</td>`);
-        html += "</tr>";
-      });
-      html += "</tbody></table>";
-      box.innerHTML = html;
-    }
-
-    async function loadImage() {
-      const imgUrl = `/latest-report-image?t=${Date.now()}`;
-      document.getElementById("imageContainer").innerHTML =
-        `<img src="${imgUrl}" alt="Final Report PNG" onerror="this.parentElement.innerHTML='<p>No PNG report yet.</p>'" />`;
-    }
-
-    async function loadJobs() {
-      const res = await fetch("/jobs?limit=10");
-      const data = await res.json();
-
-      if (!res.ok || !data.items) {
-        document.getElementById("jobsContainer").innerHTML = "<p>Unable to load run history.</p>";
-        return;
-      }
-
-      const rows = data.items;
-      if (!rows.length) {
-        document.getElementById("jobsContainer").innerHTML = "<p>No runs yet.</p>";
-        return;
-      }
-
-      let html = `
-        <table>
+  <!-- Results -->
+  <div class="col-12 col-lg-9">
+    <div class="card card-clean">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h6 section-title mb-0">Results</h2>
+          <input id="quickSearch" class="form-control form-control-sm table-search" type="text" placeholder="Quick search symbol/company">
+        </div>
+      <div class="table-responsive table-wrap">
+        <table id="screenerTable" class="table table-clean align-middle">
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <div class="small text-muted" id="rowInfo">Showing rows</div>
+          <div class="d-flex align-items-center gap-2">
+            <label for="pageSize" class="small text-muted mb-0">Rows</label>
+            <select id="pageSize" class="form-select form-select-sm" style="width:90px;">
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+            <button id="prevPage" class="btn btn-sm btn-outline-secondary">Prev</button>
+            <button id="nextPage" class="btn btn-sm btn-outline-secondary">Next</button>
+          </div>
+        </div>
           <thead>
             <tr>
-              <th>Job ID</th>
-              <th>Status</th>
-              <th>Top N</th>
-              <th>Limit</th>
-              <th>Duration (s)</th>
-              <th>Created (UTC)</th>
-              <th>Message</th>
+              <th data-sort="number">Rank</th>
+              <th data-sort="string">Symbol</th>
+              <th data-sort="string">Company</th>
+              <th data-sort="string">Sector</th>
+              <th data-sort="number">CMP</th>
+              <th data-sort="number">MCap (Cr)</th>
+              <th data-sort="number">PE</th>
+              <th data-sort="number">ROE %</th>
+              <th data-sort="number">ROCE %</th>
+              <th data-sort="number">Debt/Equity %</th>
+              <th data-sort="number">OPM %</th>
+              <th data-sort="number">Sales CAGR %</th>
+              <th data-sort="number">Profit CAGR %</th>
+              <th data-sort="number">AI Score</th>
+              <th data-sort="string">Verdict</th>
             </tr>
           </thead>
-          <tbody>
-      `;
+          <tbody id="screenerBody">
+            {% if rows and rows|length > 0 %}
+              {% for r in rows %}
+              <tr>
+                <td>{{ r.rank }}</td>
+                <td><a href="{{ url_for('stock_detail', symbol=r.symbol) }}">{{ r.symbol }}</a></td>
+                <td>{{ r.company_name or '-' }}</td>
+                <td>{{ r.sector or '-' }}</td>
+                <td>{{ r.cmp|num2 }}</td>
+                <td>{{ r.market_cap|num2 }}</td>
+                <td>{{ r.pe|num2 }}</td>
+                <td>
+                  <span class="metric-chip
+                    {% if r.roe is not none and r.roe >= 20 %}metric-good
+                    {% elif r.roe is not none and r.roe >= 12 %}metric-mid
+                    {% elif r.roe is not none %}metric-low{% endif %}">
+                    {{ r.roe|num2 }}
+                  </span>
+                </td>
 
-      for (const r of rows) {
-        html += `
-          <tr>
-            <td style="font-size:11px">${r.job_id}</td>
-            <td>${statusBadge(r.status)}</td>
-            <td>${r.top_n ?? ""}</td>
-            <td>${r.limit_n ?? ""}</td>
-            <td>${r.duration_seconds ?? ""}</td>
-            <td>${r.created_at ?? ""}</td>
-            <td>${r.message ?? ""}</td>
-          </tr>
-        `;
-      }
+                <td>
+                  <span class="metric-chip
+                    {% if r.roce is not none and r.roce >= 18 %}metric-good
+                    {% elif r.roce is not none and r.roce >= 12 %}metric-mid
+                    {% elif r.roce is not none %}metric-low{% endif %}">
+                    {{ r.roce|num2 }}
+                  </span>
+                </td>
 
-      html += "</tbody></table>";
-      document.getElementById("jobsContainer").innerHTML = html;
-    }
+                <td>{{ r.de|num2 }}</td>
 
-    // initial load
-    window.addEventListener("load", async () => {
-      await loadJobs();
-      await loadResults();
-      await loadImage();
-    });
-  </script>
-</body>
-</html>
+                <td>
+                  <span class="metric-chip
+                    {% if r.opm is not none and r.opm >= 20 %}metric-good
+                    {% elif r.opm is not none and r.opm >= 10 %}metric-mid
+                    {% elif r.opm is not none %}metric-low{% endif %}">
+                    {{ r.opm|num2 }}
+                  </span>
+                </td>
+
+                <td>{{ r.sales_cagr|num2 }}</td>
+                <td>{{ r.profit_cagr|num2 }}</td>
+
+                <td>
+                  {% if r.ai_score is not none %}
+                    <span class="ai-score-pill
+                      {% if r.ai_score >= 75 %}score-high
+                      {% elif r.ai_score >= 55 %}score-mid
+                      {% else %}score-low{% endif %}">
+                      {{ r.ai_score|num2 }}
+                    </span>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% set v = (r.verdict or 'Watch')|lower %}
+                  <span class="badge-signal
+                    {% if 'buy' in v %}buy
+                    {% elif 'avoid' in v or 'sell' in v %}avoid
+                    {% else %}watch{% endif %}">
+                    {{ r.verdict or 'Watch' }}
+                  </span>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="15" class="text-center text-muted py-4">
+                  No stocks found. Adjust filters and run again.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/screener.js') }}"></script>
+{% endblock %}
