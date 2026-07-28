@@ -34,6 +34,15 @@ FINAL_PNG = DATA_OUT / "final_investor_report.png"
 
 DB_PATH = BACKEND_DIR / "jobs.db"
 TEMPLATES = Jinja2Templates(directory=str(BACKEND_DIR / "templates"))
+def num2(value):
+    try:
+        if value is None:
+            return "-"
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return value
+
+TEMPLATES.env.filters["num2"] = num2
 
 app = FastAPI(title="Indian Stock AI Agent Web API", version="1.1.0")
 app.add_middleware(
