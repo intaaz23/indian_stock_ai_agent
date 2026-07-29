@@ -1,7 +1,6 @@
 # --- ADD/UPDATE IMPORTS AT TOP ---
 from fastapi import FastAPI, HTTPException, Query, Request, Security
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
@@ -34,7 +33,7 @@ FINAL_PNG = DATA_OUTPUT_DIR / "final_investor_report.png"
 FINAL_CSV = DATA_OUTPUT_DIR / "final_investor_report.csv"
 
 DB_PATH = BACKEND_DIR / "jobs.db"
-TEMPLATES = Jinja2Templates(directory=str(BACKEND_DIR / "templates"))
+
 def num2(value):
     try:
         if value is None:
@@ -42,8 +41,6 @@ def num2(value):
         return f"{float(value):,.2f}"
     except (TypeError, ValueError):
         return value
-
-TEMPLATES.env.filters["num2"] = num2
 
 app = FastAPI(title="Indian Stock AI Agent Web API", version="1.1.0")
 
