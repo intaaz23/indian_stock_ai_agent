@@ -423,6 +423,29 @@ def jobs(limit: int = Query(default=20, ge=1, le=100)):
     return {"count": limit, "items": list_jobs(limit=limit)}
 
 
+@app.post("/admin/reset-stuck-jobs", summary="Reset stuck queued/running jobs")
+def reset_stuck_jobs(_: None = Security(_check_api_key)):
+    """
+    Forcefully marks any queued or running jobs as failed.
+    Use this when a job is stuck and blocking new /run-analysis requests.
+    Protected by the same API key as /run-analysis.
+    """
+    now = datetime.utcnow().isoformat()
+    conn = get_conn()
+    cur = conn.execute(
+        """
+        UPDATE jobs
+        SET status='failed', error='manual_reset', message='Reset by admin endpoint', updated_at=?
+        WHERE status IN ('queued', 'running')
+        """,
+        (now,),
+    )
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return {"reset_count": affected, "message": f"{affected} stuck job(s) cleared. You can now call /run-analysis."}
+
+
 @app.get("/latest-report-image")
 def latest_report_image():
     if not FINAL_PNG.exists():
