@@ -1,16 +1,17 @@
 # --- ADD/UPDATE IMPORTS AT TOP ---
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Security
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from pathlib import Path
 from threading import Thread, Lock
 from datetime import datetime
+import os
 import sqlite3
 import subprocess
 import uuid
-import json
 import sys
 import time
 
@@ -28,9 +29,7 @@ REPORTS_DIR = REPO_ROOT / "reports" / "qualitative"
 QUAL_INPUT = DATA_OUTPUT_DIR / "qualitative_llm_input.csv"
 QUAL_OUTPUT = DATA_OUTPUT_DIR / "qualitative_llm_output.csv"
 FINAL_PNG = DATA_OUTPUT_DIR / "final_investor_report.png"
-DATA_OUT = REPO_ROOT / "data" / "output"
-FINAL_CSV = DATA_OUT / "final_investor_report.csv"
-FINAL_PNG = DATA_OUT / "final_investor_report.png"
+FINAL_CSV = DATA_OUTPUT_DIR / "final_investor_report.csv"
 
 DB_PATH = BACKEND_DIR / "jobs.db"
 TEMPLATES = Jinja2Templates(directory=str(BACKEND_DIR / "templates"))
@@ -45,16 +44,32 @@ def num2(value):
 TEMPLATES.env.filters["num2"] = num2
 
 app = FastAPI(title="Indian Stock AI Agent Web API", version="1.1.0")
+
+# CORS: restrict origins via ALLOWED_ORIGINS env var (comma-separated).
+# Defaults to "*" for local dev; always set a specific origin in production.
+_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- NEW: run lock (single active run) ---
 RUN_LOCK = Lock()
+
+# API key auth: set API_KEY env var to require a key on mutating endpoints.
+# If API_KEY is not set, auth is skipped (suitable for local-only use).
+_API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def _check_api_key(api_key: str = Security(_API_KEY_HEADER)):
+    expected = os.getenv("API_KEY", "")
+    if not expected:
+        return  # no key configured — open access (local dev)
+    if not api_key or api_key != expected:
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
 
 
 # -----------------------------
@@ -113,9 +128,20 @@ def create_job(job_id: str, top_n: int, limit_n: int):
     conn.close()
 
 
+# Columns that update_job is allowed to write — prevents accidental or
+# injection-style writes to unexpected columns if kwargs ever widens.
+_ALLOWED_JOB_COLUMNS = frozenset({
+    "status", "message", "error",
+    "started_at", "ended_at", "updated_at",
+    "duration_seconds", "cmd1_log", "cmd2_log",
+})
+
 def update_job(job_id: str, **kwargs):
     if not kwargs:
         return
+    invalid = set(kwargs) - _ALLOWED_JOB_COLUMNS
+    if invalid:
+        raise ValueError(f"update_job: unknown column(s): {invalid}")
     kwargs["updated_at"] = datetime.utcnow().isoformat()
     keys = list(kwargs.keys())
     vals = [kwargs[k] for k in keys]
@@ -309,6 +335,23 @@ def run_pipeline(job_id: str, top_n: int, limit_n: int, input_csv_path: str):
 @app.on_event("startup")
 def startup():
     init_db()
+    # Reset jobs left in running/queued state from a previous server crash.
+    # Without this, the run lock would never be acquired and all new /run
+    # requests would get a 409 Conflict forever after an unclean shutdown.
+    conn = get_conn()
+    conn.execute(
+        """
+        UPDATE jobs
+        SET status='failed',
+            error='server_restarted',
+            message='Job interrupted by server restart',
+            updated_at=?
+        WHERE status IN ('queued', 'running')
+        """,
+        (datetime.utcnow().isoformat(),),
+    )
+    conn.commit()
+    conn.close()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -322,7 +365,7 @@ def health():
 
 
 @app.post("/run-analysis")
-def run_analysis(payload: RunRequest):
+def run_analysis(payload: RunRequest, _: None = Security(_check_api_key)):
     # route-level lock guard (friendly early rejection)
     active = get_active_job()
     if active:

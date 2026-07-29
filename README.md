@@ -66,7 +66,7 @@ OPENAI_MODEL=qwen2.5:7b
 ## Run full pipeline
 
 ```bash
-python run_all.py
+python run_all_Version.py
 ```
 
 Default settings:
@@ -80,13 +80,13 @@ LLM model: qwen2.5:7b via Ollama
 ## Quick test
 
 ```bash
-python run_all.py --limit 300 --shortlist-top-n 5
+python run_all_Version.py --limit 300 --shortlist-top-n 5
 ```
 
 ## Quant only
 
 ```bash
-python run_all.py --skip-doc-download --skip-qualitative
+python run_all_Version.py --skip-doc-download --skip-qualitative
 ```
 
 ## Output files

@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 # =========================
 # Configuration
 # =========================
-BASE_DIR = Path(r"C:\Intaaz_Work\GitHubCopilot\indian_stock_ai_agent\data\output")
-INPUT_CSV = BASE_DIR / "qualitative_llm_output.csv"
-OUTPUT_PNG = BASE_DIR / "final_investor_report.png"
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+INPUT_CSV = _PROJECT_ROOT / "data" / "output" / "qualitative_llm_output.csv"
+OUTPUT_PNG = _PROJECT_ROOT / "data" / "output" / "final_investor_report.png"
 
 MIN_CONFIDENCE = 0.0
 MIN_DATA_COMPLETENESS = 0.0
@@ -37,11 +37,17 @@ def pick_zone(price, strong_buy_below, accumulate_below, expensive_above):
     return "Watch"
 
 
-def main():
-    if not INPUT_CSV.exists():
-        raise FileNotFoundError(f"Input CSV not found: {INPUT_CSV}")
+def main(input_csv: Path = None, output_png: Path = None, top_n: int = None):
+    if input_csv is None:
+        input_csv = INPUT_CSV
+    if output_png is None:
+        output_png = OUTPUT_PNG
+    if top_n is None:
+        top_n = TOP_N
+    if not input_csv.exists():
+        raise FileNotFoundError(f"Input CSV not found: {input_csv}")
 
-    df = pd.read_csv(INPUT_CSV)
+    df = pd.read_csv(input_csv)
 
     numeric_cols = [
         "final_score", "confidence_level", "data_completeness_score",
@@ -77,7 +83,7 @@ def main():
     if sort_cols:
         filtered = filtered.sort_values(sort_cols, ascending=False)
 
-    top = filtered.head(TOP_N).copy()
+    top = filtered.head(top_n).copy()
 
     # zone
     top["zone"] = top.apply(
@@ -201,12 +207,12 @@ def main():
             except:
                 pass
 
-    OUTPUT_PNG.parent.mkdir(parents=True, exist_ok=True)
+    output_png.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
-    plt.savefig(OUTPUT_PNG, dpi=320, bbox_inches="tight")  # higher dpi for less blur
+    plt.savefig(output_png, dpi=320, bbox_inches="tight")  # higher dpi for less blur
     plt.close()
 
-    print(f" PNG report generated: {OUTPUT_PNG}")
+    print(f" PNG report generated: {output_png}")
 
 
 if __name__ == "__main__":
@@ -230,7 +236,4 @@ if __name__ == "__main__":
         help="Number of top stocks to include in the report.",
     )
     cli = parser.parse_args()
-    INPUT_CSV = Path(cli.input)
-    OUTPUT_PNG = Path(cli.output)
-    TOP_N = cli.top_n
-    main()
+    main(input_csv=Path(cli.input), output_png=Path(cli.output), top_n=cli.top_n)

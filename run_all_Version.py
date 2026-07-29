@@ -19,9 +19,11 @@ def run_command(command):
     print(" ".join(command))
     print("-" * 80)
 
-    result = subprocess.run(command)
+    result = subprocess.run(command, stderr=subprocess.PIPE, text=True)
 
     if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
         raise RuntimeError(f"Command failed: {' '.join(command)}")
 
 

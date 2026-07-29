@@ -45,9 +45,9 @@ def load_universe_df() -> pd.DataFrame:
       2) newest *.csv in data folder
     """
     candidates = [
-        DATA_DIR / "nse_quant_output.csv",
         DATA_DIR / "qualitative_llm_output.csv",
         DATA_DIR / "qualitative_llm_input.csv",
+        DATA_DIR / "nse_quant_output.csv",
     ]
 
     for c in candidates:
@@ -202,8 +202,11 @@ def apply_filters(rows: List[Dict[str, Any]], args) -> List[Dict[str, Any]]:
             combined = f"{r.get('symbol','')} {r.get('company_name','')}".lower()
             if q not in combined:
                 continue
-        # mcap_min intentionally skipped unless you add mapped market cap field
-        _ = mcap_min
+        # market cap minimum
+        if mcap_min is not None:
+            mcap = r.get("market_cap")
+            if mcap is None or mcap < mcap_min:
+                continue
         filtered.append(r)
 
     # default sort by ai_score desc (None last)

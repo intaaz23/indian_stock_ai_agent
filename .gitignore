@@ -1,4 +1,3 @@
-cat > .gitignore <<'EOF'
 # Secrets
 .env
 
@@ -34,7 +33,9 @@ reports/*
 # Generated CSV summary files
 downloaded_docs_summary.csv
 
+# SQLite job database (runtime state, not source)
+webapp/backend/jobs.db
+
 # OS files
 .DS_Store
 Thumbs.db
-EOF
