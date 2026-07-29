@@ -517,3 +517,25 @@ def job_logs(job_id: str):
         "error": job.get("error"),
         "status": job.get("status")
     }
+
+
+@app.get("/stock-report/{symbol}", summary="Get qualitative LLM report for a stock")
+def stock_report(symbol: str):
+    # Sanitise symbol — only allow alphanumeric, hyphen, ampersand
+    import re
+    clean = re.sub(r"[^A-Za-z0-9\-&]", "", symbol).upper()
+    if not clean:
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    report_path = REPORTS_DIR / f"{clean}_qualitative_report.md"
+    if not report_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"No qualitative report found for {clean}. Run the pipeline first."
+        )
+    try:
+        content = report_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read report: {e}")
+
+    return {"symbol": clean, "markdown": content, "found": True}

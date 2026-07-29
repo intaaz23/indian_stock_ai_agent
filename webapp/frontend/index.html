@@ -16,8 +16,18 @@
       }
     }
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
   <style>
-    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    /* Markdown report styles */
+    .md-report h1, .md-report h2 { color: #1f4e78; margin-top: 1.1rem; margin-bottom: 0.4rem; }
+    .md-report h1 { font-size: 1.1rem; font-weight: 700; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+    .md-report h2 { font-size: 0.95rem; font-weight: 700; }
+    .md-report h3 { font-size: 0.88rem; font-weight: 600; color: #374151; margin-top: 0.8rem; }
+    .md-report p  { font-size: 0.85rem; line-height: 1.6; color: #374151; margin-bottom: 0.5rem; }
+    .md-report ul { list-style: disc; padding-left: 1.2rem; margin-bottom: 0.5rem; }
+    .md-report li { font-size: 0.85rem; line-height: 1.5; color: #374151; }
+    .md-report strong { color: #111827; }
+  </style>
     .zone-strong-buy  { background: #c6efce; color: #276221; }
     .zone-accumulate  { background: #ffeb9c; color: #7d5a00; }
     .zone-watch       { background: #dde8f5; color: #1f4e78; }
@@ -221,15 +231,33 @@
 
   <!-- STOCK DETAIL MODAL -->
   <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-      <div class="flex items-start justify-between mb-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto p-6">
+      <div class="flex items-start justify-between mb-2">
         <div>
           <h2 id="modalSymbol" class="text-2xl font-bold text-brand"></h2>
           <p id="modalSector" class="text-sm text-gray-500"></p>
         </div>
         <button onclick="closeModal()" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
       </div>
-      <div id="modalBody" class="space-y-4"></div>
+
+      <!-- Tabs -->
+      <div class="flex gap-6 border-b border-gray-200 mb-4 text-sm">
+        <button id="tabMetrics" onclick="switchTab('metrics')" class="pb-2 tab-active">Metrics</button>
+        <button id="tabReport"  onclick="switchTab('report')"  class="pb-2 tab-inactive">AI Report</button>
+      </div>
+
+      <!-- Metrics tab -->
+      <div id="tabMetricsBody">
+        <div id="modalBody" class="space-y-4"></div>
+      </div>
+
+      <!-- AI Report tab -->
+      <div id="tabReportBody" class="hidden">
+        <div id="reportLoadState" class="text-sm text-gray-400 italic py-4 text-center">
+          Click "AI Report" tab to load…
+        </div>
+        <div id="reportMarkdown" class="md-report hidden"></div>
+      </div>
     </div>
   </div>
 
@@ -575,19 +603,65 @@
     // ---------------------------------------------------------------
     // STOCK DETAIL MODAL
     // ---------------------------------------------------------------
+    let _modalSymbol = null;
+    let _reportLoaded = false;
+
+    function switchTab(tab) {
+      const isMetrics = tab === 'metrics';
+      document.getElementById('tabMetricsBody').classList.toggle('hidden', !isMetrics);
+      document.getElementById('tabReportBody').classList.toggle('hidden', isMetrics);
+      document.getElementById('tabMetrics').className = `pb-2 ${isMetrics ? 'tab-active' : 'tab-inactive'}`;
+      document.getElementById('tabReport').className  = `pb-2 ${!isMetrics ? 'tab-active' : 'tab-inactive'}`;
+      if (!isMetrics && !_reportLoaded) loadStockReport(_modalSymbol);
+    }
+
+    async function loadStockReport(symbol) {
+      const state = document.getElementById('reportLoadState');
+      const mdDiv = document.getElementById('reportMarkdown');
+      state.textContent = '⏳ Loading AI report…';
+      state.classList.remove('hidden');
+      mdDiv.classList.add('hidden');
+      try {
+        const r = await fetch(apiUrl(`/stock-report/${encodeURIComponent(symbol)}`));
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          state.textContent = d.detail || `No report found for ${symbol}. Run the pipeline to generate one.`;
+          return;
+        }
+        const d = await r.json();
+        mdDiv.innerHTML = marked.parse(d.markdown || '');
+        state.classList.add('hidden');
+        mdDiv.classList.remove('hidden');
+        _reportLoaded = true;
+      } catch (e) {
+        state.textContent = 'Failed to load report: ' + e.message;
+      }
+    }
+
     function openModal(r) {
+      _modalSymbol = r.symbol;
+      _reportLoaded = false;
+      // Reset to Metrics tab
+      switchTab('metrics');
+      document.getElementById('reportMarkdown').innerHTML = '';
+      document.getElementById('reportMarkdown').classList.add('hidden');
+      document.getElementById('reportLoadState').textContent = 'Click "AI Report" tab to load…';
+      document.getElementById('reportLoadState').classList.remove('hidden');
+
       document.getElementById('modalSymbol').textContent = r.symbol || '—';
       document.getElementById('modalSector').textContent = r.sector || '';
       const z = computeZone(r);
       const upside = calcUpside(r);
       document.getElementById('modalBody').innerHTML = `
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
           ${metricCard('Price', '₹' + fmt(r.price))}
           ${metricCard('Market Cap', fmtMcap(r.market_cap_cr))}
-          ${metricCard('Final Score', fmt(r.final_score), 'font-bold text-brand')}
+          ${metricCard('Zone', `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${zoneClass(z)}">${z}</span>`)}
+          ${metricCard('Final Score', fmt(r.final_score), 'font-bold text-brand text-lg')}
           ${metricCard('Quant Score', fmt(r.quant_score))}
           ${metricCard('Qual Score', fmt(r.qualitative_score))}
-          ${metricCard('Zone', `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${zoneClass(z)}">${z}</span>`)}
+          ${metricCard('Upside%', upside !== null ? `<span class="${upside >= 0 ? 'upside-pos' : 'upside-neg'} text-base">${upside.toFixed(1)}%</span>` : '-')}
+          ${metricCard('Fair Value', '₹' + fmt(r.estimated_fair_value))}
           ${metricCard('ROE%', fmt(r.roe_percent))}
           ${metricCard('ROCE%', fmt(r.roce_percent))}
           ${metricCard('D/E%', fmt(r.debt_to_equity_percent))}
@@ -595,8 +669,6 @@
           ${metricCard('Promoter%', fmt(r.promoter_holding))}
           ${metricCard('Sales Gr 5Y%', fmt(r.sales_growth_5y))}
           ${metricCard('FCF 5Y', fmt(r.free_cash_flow_5y))}
-          ${metricCard('Fair Value', '₹' + fmt(r.estimated_fair_value))}
-          ${metricCard('Upside%', upside !== null ? `<span class="${upside >= 0 ? 'upside-pos' : 'upside-neg'}">${upside.toFixed(1)}%</span>` : '-')}
         </div>
         <p class="text-xs text-gray-400 mt-4 italic">
           ⚠️ For educational use only. Always verify independently before any investment decision.
