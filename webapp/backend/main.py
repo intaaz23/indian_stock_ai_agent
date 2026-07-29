@@ -1,6 +1,6 @@
 # --- ADD/UPDATE IMPORTS AT TOP ---
 from fastapi import FastAPI, HTTPException, Query, Request, Security
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
@@ -354,9 +354,9 @@ def startup():
     conn.close()
 
 
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return TEMPLATES.TemplateResponse("index.html", {"request": request})
+@app.get("/", response_class=RedirectResponse, include_in_schema=False)
+def home():
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")
