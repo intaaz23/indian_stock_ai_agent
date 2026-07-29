@@ -98,6 +98,17 @@ def main():
     )
 
     parser.add_argument(
+        "--skip-fresh-days",
+        type=int,
+        default=7,
+        help=(
+            "Skip re-downloading docs for a symbol if all its documents already exist "
+            "and were last downloaded within this many days. 0 = always re-download. "
+            "Default 7 (skip if docs are less than a week old)."
+        ),
+    )
+
+    parser.add_argument(
         "--skip-qualitative",
         action="store_true",
         help="Skip qualitative LLM analysis step.",
@@ -221,6 +232,8 @@ def main():
             "3",
             "--summary-output",
             str(docs_summary),
+            "--skip-fresh-days",
+            str(args.skip_fresh_days),
         ])
 
     # Step 5: Qualitative LLM analysis.

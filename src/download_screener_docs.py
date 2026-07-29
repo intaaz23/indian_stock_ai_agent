@@ -505,13 +505,57 @@ def write_debug_links(company_dir: Path, categories: dict):
                 )
 
 
-def download_docs_for_symbol(session, symbol: str, output_dir: str, sleep: float):
+def _existing_doc_is_fresh(path_stem: Path, max_age_days: int) -> bool:
+    """Return True if a .pdf or .txt file at path_stem exists and is < max_age_days old."""
+    if max_age_days <= 0:
+        return False
+    for suffix in (".pdf", ".txt"):
+        candidate = path_stem.with_suffix(suffix)
+        if candidate.exists():
+            age_days = (datetime.now().timestamp() - candidate.stat().st_mtime) / 86400
+            if age_days < max_age_days:
+                return True
+    return False
+
+
+def download_docs_for_symbol(
+    session,
+    symbol: str,
+    output_dir: str,
+    sleep: float,
+    skip_fresh_days: int = 0,
+):
     symbol = clean_symbol(symbol)
 
     company_dir = Path(output_dir) / symbol
     company_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\nProcessing {symbol}...")
+
+    # Skip the entire symbol if all three documents are already fresh.
+    if skip_fresh_days > 0:
+        doc_stems = [
+            company_dir / "annual_report_latest",
+            company_dir / "investor_presentation_latest",
+            company_dir / "latest_concall",
+        ]
+        if all(_existing_doc_is_fresh(s, skip_fresh_days) for s in doc_stems):
+            print(
+                f"  All documents are fresh (< {skip_fresh_days} days old), "
+                f"skipping {symbol}."
+            )
+            result: dict = {"symbol": symbol, "status": "skipped_fresh"}
+            for key, stem in zip(
+                ["annual_report", "investor_presentation", "concall"], doc_stems
+            ):
+                result[f"{key}_status"] = "skipped_fresh"
+                for suffix in (".pdf", ".txt"):
+                    if stem.with_suffix(suffix).exists():
+                        result[key] = str(stem.with_suffix(suffix))
+                        break
+                else:
+                    result[key] = ""
+            return result
 
     html = get_company_page(session, symbol)
 
@@ -665,6 +709,16 @@ def main():
         help="CSV summary of downloaded documents.",
     )
 
+    parser.add_argument(
+        "--skip-fresh-days",
+        type=int,
+        default=0,
+        help=(
+            "Skip re-downloading documents for a symbol if all its docs already exist "
+            "and were downloaded within this many days. 0 = always re-download (default)."
+        ),
+    )
+
     args = parser.parse_args()
 
     df = pd.read_csv(args.input)
@@ -688,6 +742,7 @@ def main():
             symbol=symbol,
             output_dir=args.output_dir,
             sleep=args.sleep,
+            skip_fresh_days=args.skip_fresh_days,
         )
 
         results.append(result)

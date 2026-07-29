@@ -4,6 +4,8 @@ services:
     env: python
     plan: free
     region: oregon
+    branch: main
+    autoDeploy: true
 
     # Build both root + backend deps
     buildCommand: |
