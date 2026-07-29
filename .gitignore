@@ -16,6 +16,8 @@ env/
 data/input/*
 data/output/*
 !data/output/qualitative_llm_input.csv
+!data/output/qualitative_llm_output.csv
+!data/output/nse_quant_output.csv
 data/docs/*
 
 # Keep folder placeholders if needed
@@ -26,9 +28,11 @@ data/docs/*
 # Cache
 cache/
 
-# Reports
+# Reports — commit qualitative MD reports so AI Report tab works on Render
 reports/*
 !reports/.gitkeep
+!reports/qualitative/
+!reports/qualitative/*.md
 
 # Generated CSV summary files
 downloaded_docs_summary.csv
