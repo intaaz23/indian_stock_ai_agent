@@ -36,6 +36,10 @@ downloaded_docs_summary.csv
 # SQLite job database (runtime state, not source)
 webapp/backend/jobs.db
 
+# Frontend build output (none currently — static HTML has no build step)
+# webapp/frontend/.next/
+# webapp/frontend/node_modules/
+
 # OS files
 .DS_Store
 Thumbs.db

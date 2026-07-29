@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Indian Stock AI Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: '#1f4e78', light: '#2e6da4', muted: '#e8f0f7' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .zone-strong-buy  { background: #c6efce; color: #276221; }
+    .zone-accumulate  { background: #ffeb9c; color: #7d5a00; }
+    .zone-watch       { background: #dde8f5; color: #1f4e78; }
+    .zone-expensive   { background: #ffc7ce; color: #9c0006; }
+    .zone-unknown     { background: #f3f4f6; color: #6b7280; }
+    .badge-success    { background: #c6efce; color: #276221; }
+    .badge-running    { background: #dbeafe; color: #1e40af; }
+    .badge-failed     { background: #ffc7ce; color: #9c0006; }
+    .badge-queued     { background: #fef9c3; color: #78350f; }
+    .badge-partial    { background: #fed7aa; color: #92400e; }
+    .upside-pos       { color: #16a34a; font-weight: 600; }
+    .upside-neg       { color: #dc2626; font-weight: 600; }
+    .tab-active       { border-bottom: 2px solid #1f4e78; color: #1f4e78; font-weight: 600; }
+    .tab-inactive     { color: #6b7280; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    th { background: #1f4e78; color: white; font-size: 0.78rem; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    tr:hover td { background: #f0f6ff; }
+    .scroll-x { overflow-x: auto; }
+    #spinner { border: 3px solid #e5e7eb; border-top-color: #1f4e78; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+  <!-- NAV -->
+  <nav class="bg-brand text-white shadow-md sticky top-0 z-50">
+    <div class="max-w-screen-xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-xl font-bold tracking-tight">📈 Indian Stock AI</span>
+        <span class="text-xs bg-white text-brand px-2 py-0.5 rounded-full font-semibold">BETA</span>
+      </div>
+      <div class="flex gap-6 text-sm font-medium">
+        <a href="#screener" class="hover:text-yellow-300 transition-colors">Screener</a>
+        <a href="#pipeline" class="hover:text-yellow-300 transition-colors">Run Pipeline</a>
+        <a href="#report"   class="hover:text-yellow-300 transition-colors">Report</a>
+        <a href="#jobs"     class="hover:text-yellow-300 transition-colors">Job History</a>
+        <a id="navApiLink" href="/docs" target="_blank" class="hover:text-yellow-300 transition-colors">API Docs ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-screen-xl mx-auto px-4 py-6 space-y-8">
+
+    <!-- HEALTH BANNER -->
+    <div id="healthBanner" class="hidden text-sm px-4 py-2 rounded-lg"></div>
+
+    <!-- =========================================================
+         SECTION 1: SCREENER TABLE
+    ========================================================= -->
+    <section id="screener">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h2 class="text-xl font-bold text-brand">Stock Screener</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Sorted by AI Final Score. Click a row for detail.</p>
+        </div>
+        <div class="flex gap-2 items-center">
+          <input id="filterQ" type="text" placeholder="Search symbol / name…"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand w-52" />
+          <select id="filterZone"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand">
+            <option value="">All Zones</option>
+            <option value="Strong Buy">Strong Buy</option>
+            <option value="Accumulate">Accumulate</option>
+            <option value="Watch">Watch</option>
+            <option value="Expensive">Expensive</option>
+          </select>
+          <button onclick="loadResults()" class="bg-brand hover:bg-brand-light text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div id="screenerStatus" class="text-sm text-gray-500 mb-2"></div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 scroll-x">
+        <table id="stockTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Symbol</th>
+              <th>Sector</th>
+              <th>Price (₹)</th>
+              <th>MCap (Cr)</th>
+              <th>Final Score</th>
+              <th>Quant</th>
+              <th>Qual</th>
+              <th>ROE%</th>
+              <th>ROCE%</th>
+              <th>D/E%</th>
+              <th>PE</th>
+              <th>Promoter%</th>
+              <th>Sales Gr 5Y%</th>
+              <th>FCF 5Y</th>
+              <th>Fair Value (₹)</th>
+              <th>Upside%</th>
+              <th>Zone</th>
+            </tr>
+          </thead>
+          <tbody id="stockTableBody">
+            <tr><td colspan="18" class="text-center text-gray-400 py-8">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SECTION 2: RUN PIPELINE
+    ========================================================= -->
+    <section id="pipeline" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- Run card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <h2 class="text-lg font-bold text-brand mb-1">Run Analysis Pipeline</h2>
+        <p class="text-xs text-gray-500 mb-4">Triggers the LLM qualitative analysis on Render. Takes 2–10 min.</p>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-gray-600 block mb-1">Top N stocks to analyse</label>
+            <input id="topN" type="number" value="10" min="1" max="100"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-brand" />
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-600 block mb-1">Limit (max stocks to pass to LLM)</label>
+            <input id="limitN" type="number" value="10" min="1" max="200"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-brand" />
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-600 block mb-1">API Key (if set on server)</label>
+            <input id="apiKeyInput" type="password" placeholder="Leave blank if not set"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-brand" />
+          </div>
+          <button id="runBtn" onclick="runAnalysis()"
+            class="w-full bg-brand hover:bg-brand-light text-white font-semibold py-2 rounded-lg transition-colors text-sm">
+            ▶ Start Analysis
+          </button>
+        </div>
+        <div id="runMsg" class="mt-3 text-sm"></div>
+      </div>
+
+      <!-- Active job status card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold text-brand">Active Job Status</h2>
+          <button onclick="pollJob()" class="text-xs text-brand underline">Refresh</button>
+        </div>
+        <div id="jobStatusCard" class="text-sm text-gray-400 italic">No active job tracked yet.</div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SECTION 3: LATEST REPORT IMAGE
+    ========================================================= -->
+    <section id="report">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-brand">Latest Investor Report</h2>
+        <a id="reportDownload" href="#" download="final_investor_report.png"
+          class="text-sm text-brand underline hidden">⬇ Download PNG</a>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div id="reportImgWrap" class="text-sm text-gray-400 italic text-center py-8">
+          Loading report…
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SECTION 4: JOB HISTORY
+    ========================================================= -->
+    <section id="jobs">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-brand">Job History</h2>
+        <button onclick="loadJobs()" class="text-sm text-brand underline">Refresh</button>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 scroll-x">
+        <table>
+          <thead>
+            <tr>
+              <th>Job ID</th>
+              <th>Status</th>
+              <th>Top N</th>
+              <th>Limit</th>
+              <th>Message</th>
+              <th>Started</th>
+              <th>Duration (s)</th>
+              <th>Logs</th>
+            </tr>
+          </thead>
+          <tbody id="jobsTableBody">
+            <tr><td colspan="8" class="text-center text-gray-400 py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-gray-400 py-4">
+      Indian Stock AI Agent · For educational &amp; research use only · Not financial advice
+    </footer>
+  </div>
+
+  <!-- STOCK DETAIL MODAL -->
+  <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 id="modalSymbol" class="text-2xl font-bold text-brand"></h2>
+          <p id="modalSector" class="text-sm text-gray-500"></p>
+        </div>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+      </div>
+      <div id="modalBody" class="space-y-4"></div>
+    </div>
+  </div>
+
+  <script>
+    // ---------------------------------------------------------------
+    // CONFIG — reads NEXT_PUBLIC_API_URL meta tag if present,
+    // falls back to same-origin (works when served from FastAPI).
+    // ---------------------------------------------------------------
+    const API_BASE = (document.querySelector('meta[name="api-url"]')?.content || '').replace(/\/$/, '');
+
+    function apiUrl(path) {
+      return API_BASE + path;
+    }
+
+    function apiHeaders() {
+      const key = document.getElementById('apiKeyInput')?.value?.trim();
+      return key ? { 'X-API-Key': key } : {};
+    }
+
+    // ---------------------------------------------------------------
+    // HEALTH CHECK
+    // ---------------------------------------------------------------
+    async function checkHealth() {
+      try {
+        const r = await fetch(apiUrl('/health'));
+        const d = await r.json();
+        const el = document.getElementById('healthBanner');
+        if (d.status === 'ok') {
+          el.className = 'text-sm px-4 py-2 rounded-lg bg-green-50 text-green-700 border border-green-200';
+          el.textContent = '✅ API server is live';
+        } else {
+          el.className = 'text-sm px-4 py-2 rounded-lg bg-red-50 text-red-700 border border-red-200';
+          el.textContent = '⚠️ API server health check failed';
+        }
+        el.classList.remove('hidden');
+        setTimeout(() => el.classList.add('hidden'), 4000);
+      } catch (e) {
+        const el = document.getElementById('healthBanner');
+        el.className = 'text-sm px-4 py-2 rounded-lg bg-red-50 text-red-700 border border-red-200';
+        el.textContent = '❌ Cannot reach API server. Check NEXT_PUBLIC_API_URL or network.';
+        el.classList.remove('hidden');
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // SCREENER TABLE
+    // ---------------------------------------------------------------
+    let _allRows = [];
+
+    async function loadResults() {
+      document.getElementById('screenerStatus').textContent = 'Loading…';
+      try {
+        const r = await fetch(apiUrl('/latest-results?top_n=100'));
+        if (!r.ok) {
+          document.getElementById('screenerStatus').textContent = r.status === 404
+            ? 'No results yet — run the pipeline first.'
+            : `Error ${r.status}`;
+          document.getElementById('stockTableBody').innerHTML =
+            '<tr><td colspan="18" class="text-center text-gray-400 py-8">No data</td></tr>';
+          return;
+        }
+        const d = await r.json();
+        _allRows = d.results || [];
+        document.getElementById('screenerStatus').textContent =
+          `Showing ${_allRows.length} stocks`;
+        renderTable(_allRows);
+      } catch (e) {
+        document.getElementById('screenerStatus').textContent = 'Failed to load: ' + e.message;
+      }
+    }
+
+    function renderTable(rows) {
+      const q = document.getElementById('filterQ').value.trim().toLowerCase();
+      const zone = document.getElementById('filterZone').value;
+
+      let filtered = rows.filter(r => {
+        if (q && !`${r.symbol} ${r.sector || ''}`.toLowerCase().includes(q)) return false;
+        if (zone) {
+          const rZone = computeZone(r);
+          if (rZone !== zone) return false;
+        }
+        return true;
+      });
+
+      document.getElementById('screenerStatus').textContent =
+        `Showing ${filtered.length} of ${rows.length} stocks`;
+
+      if (!filtered.length) {
+        document.getElementById('stockTableBody').innerHTML =
+          '<tr><td colspan="18" class="text-center text-gray-400 py-8">No stocks match filters</td></tr>';
+        return;
+      }
+
+      const tbody = filtered.map((r, i) => {
+        const z = computeZone(r);
+        const zClass = zoneClass(z);
+        const upside = calcUpside(r);
+        const uClass = upside === null ? '' : upside >= 0 ? 'upside-pos' : 'upside-neg';
+        return `<tr class="cursor-pointer" onclick="openModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+          <td class="text-gray-400">${i + 1}</td>
+          <td class="font-semibold text-brand">${r.symbol || '-'}</td>
+          <td class="text-xs">${r.sector || '-'}</td>
+          <td>${fmt(r.price)}</td>
+          <td>${fmtMcap(r.market_cap_cr)}</td>
+          <td class="font-bold">${fmt(r.final_score)}</td>
+          <td>${fmt(r.quant_score)}</td>
+          <td>${fmt(r.qualitative_score)}</td>
+          <td>${fmt(r.roe_percent)}</td>
+          <td>${fmt(r.roce_percent)}</td>
+          <td>${fmt(r.debt_to_equity_percent)}</td>
+          <td>${fmt(r.current_pe)}</td>
+          <td>${fmt(r.promoter_holding)}</td>
+          <td>${fmt(r.sales_growth_5y)}</td>
+          <td>${fmt(r.free_cash_flow_5y)}</td>
+          <td>${fmt(r.estimated_fair_value)}</td>
+          <td class="${uClass}">${upside === null ? '-' : upside.toFixed(1) + '%'}</td>
+          <td><span class="px-2 py-0.5 rounded-full text-xs font-semibold ${zClass}">${z}</span></td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('stockTableBody').innerHTML = tbody;
+    }
+
+    document.getElementById('filterQ').addEventListener('input', () => renderTable(_allRows));
+    document.getElementById('filterZone').addEventListener('change', () => renderTable(_allRows));
+
+    // ---------------------------------------------------------------
+    // HELPERS
+    // ---------------------------------------------------------------
+    function fmt(v) {
+      if (v === null || v === undefined || v === '') return '-';
+      const n = parseFloat(v);
+      return isNaN(n) ? String(v) : n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    }
+    function fmtMcap(v) {
+      const n = parseFloat(v);
+      if (isNaN(n)) return '-';
+      if (n >= 100000) return (n / 100000).toFixed(1) + 'L Cr';
+      if (n >= 1000)   return (n / 1000).toFixed(1) + 'K Cr';
+      return n.toFixed(0) + ' Cr';
+    }
+    function computeZone(r) {
+      const p = parseFloat(r.price);
+      if (isNaN(p)) return 'Unknown';
+      const sb = parseFloat(r.strong_buy_below);
+      const ac = parseFloat(r.accumulate_below);
+      const ex = parseFloat(r.expensive_above);
+      if (!isNaN(sb) && p <= sb) return 'Strong Buy';
+      if (!isNaN(ac) && p <= ac) return 'Accumulate';
+      if (!isNaN(ex) && p >= ex) return 'Expensive';
+      return 'Watch';
+    }
+    function calcUpside(r) {
+      const p = parseFloat(r.price);
+      const fv = parseFloat(r.estimated_fair_value);
+      if (isNaN(p) || isNaN(fv) || p === 0) return null;
+      return ((fv - p) / p) * 100;
+    }
+    function zoneClass(z) {
+      if (!z) return 'zone-unknown';
+      const key = z.toLowerCase().replace(/\s+/g, '-');
+      return `zone-${key}`;
+    }
+    function statusBadge(s) {
+      const map = { success: 'badge-success', running: 'badge-running', failed: 'badge-failed',
+                    queued: 'badge-queued', partial_success: 'badge-partial' };
+      const cls = map[s] || 'zone-unknown';
+      return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${s}</span>`;
+    }
+
+    // ---------------------------------------------------------------
+    // RUN ANALYSIS
+    // ---------------------------------------------------------------
+    let _activeJobId = null;
+    let _pollTimer = null;
+
+    async function runAnalysis() {
+      const topN  = parseInt(document.getElementById('topN').value)  || 10;
+      const limit = parseInt(document.getElementById('limitN').value) || 10;
+      const btn   = document.getElementById('runBtn');
+      const msg   = document.getElementById('runMsg');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Starting…';
+      msg.innerHTML = '';
+
+      try {
+        const r = await fetch(apiUrl('/run-analysis'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...apiHeaders() },
+          body: JSON.stringify({ top_n: topN, limit: limit })
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          msg.innerHTML = `<span class="text-red-600">Error ${r.status}: ${d.detail || JSON.stringify(d)}</span>`;
+          btn.disabled = false;
+          btn.textContent = '▶ Start Analysis';
+          return;
+        }
+        _activeJobId = d.job_id;
+        msg.innerHTML = `<span class="text-green-700">✅ Job queued: <code class="text-xs bg-gray-100 px-1">${d.job_id}</code></span>`;
+        btn.textContent = '⏳ Running…';
+        startPolling();
+      } catch (e) {
+        msg.innerHTML = `<span class="text-red-600">Network error: ${e.message}</span>`;
+        btn.disabled = false;
+        btn.textContent = '▶ Start Analysis';
+      }
+    }
+
+    function startPolling() {
+      if (_pollTimer) clearInterval(_pollTimer);
+      _pollTimer = setInterval(pollJob, 5000);
+      pollJob();
+    }
+
+    async function pollJob() {
+      if (!_activeJobId) {
+        // Try to find active job from history
+        try {
+          const r = await fetch(apiUrl('/jobs?limit=1'));
+          const d = await r.json();
+          if (d.items?.length) {
+            const j = d.items[0];
+            if (['queued','running'].includes(j.status)) {
+              _activeJobId = j.job_id;
+            } else {
+              renderJobStatus(j);
+              return;
+            }
+          }
+        } catch {}
+        return;
+      }
+      try {
+        const r = await fetch(apiUrl(`/job-status/${_activeJobId}`));
+        const j = await r.json();
+        renderJobStatus(j);
+        if (['success','failed','partial_success'].includes(j.status)) {
+          clearInterval(_pollTimer);
+          _pollTimer = null;
+          const btn = document.getElementById('runBtn');
+          btn.disabled = false;
+          btn.textContent = '▶ Start Analysis';
+          if (j.status === 'success' || j.status === 'partial_success') {
+            loadResults();
+            loadReport();
+          }
+          loadJobs();
+        }
+      } catch (e) {
+        document.getElementById('jobStatusCard').innerHTML =
+          `<span class="text-red-500">Poll error: ${e.message}</span>`;
+      }
+    }
+
+    function renderJobStatus(j) {
+      const dur = j.duration_seconds ? `${j.duration_seconds.toFixed(1)}s` : '—';
+      document.getElementById('jobStatusCard').innerHTML = `
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            ${statusBadge(j.status)}
+            ${j.status === 'running' ? '<span id="spinner"></span>' : ''}
+          </div>
+          <div class="text-xs text-gray-500 font-mono truncate">ID: ${j.job_id}</div>
+          <div class="text-sm">${j.message || ''}</div>
+          ${j.error ? `<div class="text-xs text-red-500">Error: ${j.error}</div>` : ''}
+          <div class="text-xs text-gray-400">Started: ${j.started_at || '—'} · Duration: ${dur}</div>
+          <a href="${apiUrl('/job-logs/' + j.job_id)}" target="_blank"
+             class="text-xs text-brand underline">View full logs ↗</a>
+        </div>`;
+    }
+
+    // ---------------------------------------------------------------
+    // REPORT IMAGE
+    // ---------------------------------------------------------------
+    async function loadReport() {
+      const wrap = document.getElementById('reportImgWrap');
+      const dl   = document.getElementById('reportDownload');
+      const url  = apiUrl('/latest-report-image');
+      try {
+        const r = await fetch(url);
+        if (!r.ok) {
+          wrap.textContent = 'No report image yet. Run the pipeline first.';
+          dl.classList.add('hidden');
+          return;
+        }
+        wrap.innerHTML = `<img src="${url}?t=${Date.now()}" alt="Investor Report"
+          class="w-full rounded-lg border border-gray-200" />`;
+        dl.href = url;
+        dl.classList.remove('hidden');
+      } catch {
+        wrap.textContent = 'Could not load report image.';
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // JOB HISTORY
+    // ---------------------------------------------------------------
+    async function loadJobs() {
+      try {
+        const r = await fetch(apiUrl('/jobs?limit=20'));
+        const d = await r.json();
+        const rows = (d.items || []).map(j => {
+          const dur = j.duration_seconds ? j.duration_seconds.toFixed(1) + 's' : '—';
+          return `<tr>
+            <td class="font-mono text-xs text-gray-400 max-w-[120px] truncate" title="${j.job_id}">${j.job_id.slice(0,8)}…</td>
+            <td>${statusBadge(j.status)}</td>
+            <td>${j.top_n ?? '—'}</td>
+            <td>${j.limit_n ?? '—'}</td>
+            <td class="text-xs max-w-xs truncate" title="${j.message || ''}">${j.message || '—'}</td>
+            <td class="text-xs">${(j.started_at || '—').replace('T',' ').slice(0,19)}</td>
+            <td>${dur}</td>
+            <td><a href="${apiUrl('/job-logs/' + j.job_id)}" target="_blank" class="text-xs text-brand underline">Logs ↗</a></td>
+          </tr>`;
+        }).join('');
+        document.getElementById('jobsTableBody').innerHTML = rows ||
+          '<tr><td colspan="8" class="text-center text-gray-400 py-6">No jobs found</td></tr>';
+      } catch (e) {
+        document.getElementById('jobsTableBody').innerHTML =
+          `<tr><td colspan="8" class="text-center text-red-400 py-6">${e.message}</td></tr>`;
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // STOCK DETAIL MODAL
+    // ---------------------------------------------------------------
+    function openModal(r) {
+      document.getElementById('modalSymbol').textContent = r.symbol || '—';
+      document.getElementById('modalSector').textContent = r.sector || '';
+      const z = computeZone(r);
+      const upside = calcUpside(r);
+      document.getElementById('modalBody').innerHTML = `
+        <div class="grid grid-cols-2 gap-3">
+          ${metricCard('Price', '₹' + fmt(r.price))}
+          ${metricCard('Market Cap', fmtMcap(r.market_cap_cr))}
+          ${metricCard('Final Score', fmt(r.final_score), 'font-bold text-brand')}
+          ${metricCard('Quant Score', fmt(r.quant_score))}
+          ${metricCard('Qual Score', fmt(r.qualitative_score))}
+          ${metricCard('Zone', `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${zoneClass(z)}">${z}</span>`)}
+          ${metricCard('ROE%', fmt(r.roe_percent))}
+          ${metricCard('ROCE%', fmt(r.roce_percent))}
+          ${metricCard('D/E%', fmt(r.debt_to_equity_percent))}
+          ${metricCard('PE', fmt(r.current_pe))}
+          ${metricCard('Promoter%', fmt(r.promoter_holding))}
+          ${metricCard('Sales Gr 5Y%', fmt(r.sales_growth_5y))}
+          ${metricCard('FCF 5Y', fmt(r.free_cash_flow_5y))}
+          ${metricCard('Fair Value', '₹' + fmt(r.estimated_fair_value))}
+          ${metricCard('Upside%', upside !== null ? `<span class="${upside >= 0 ? 'upside-pos' : 'upside-neg'}">${upside.toFixed(1)}%</span>` : '-')}
+        </div>
+        <p class="text-xs text-gray-400 mt-4 italic">
+          ⚠️ For educational use only. Always verify independently before any investment decision.
+        </p>`;
+      document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function metricCard(label, value, extraClass = '') {
+      return `<div class="bg-gray-50 rounded-lg p-3">
+        <div class="text-xs text-gray-500 mb-1">${label}</div>
+        <div class="text-sm font-semibold ${extraClass}">${value}</div>
+      </div>`;
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.add('hidden');
+    }
+
+    document.getElementById('modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal')) closeModal();
+    });
+
+    // ---------------------------------------------------------------
+    // INIT
+    // ---------------------------------------------------------------
+    checkHealth();
+    loadResults();
+    loadReport();
+    loadJobs();
+  </script>
+</body>
+</html>

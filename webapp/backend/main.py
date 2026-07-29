@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pathlib import Path
 from threading import Thread, Lock
@@ -20,6 +21,7 @@ import time
 # Paths (repo-specific)
 # -----------------------------
 BACKEND_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 REPO_ROOT = BACKEND_DIR.parents[1]  # IMPORTANT: repo root
 SRC_DIR = REPO_ROOT / "src"
 DATA_OUTPUT_DIR = REPO_ROOT / "data" / "output"
@@ -44,6 +46,10 @@ def num2(value):
 TEMPLATES.env.filters["num2"] = num2
 
 app = FastAPI(title="Indian Stock AI Agent Web API", version="1.1.0")
+
+# Serve the static frontend at /ui
+if FRONTEND_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 # CORS: restrict origins via ALLOWED_ORIGINS env var (comma-separated).
 # Defaults to "*" for local dev; always set a specific origin in production.
@@ -356,7 +362,7 @@ def startup():
 
 @app.get("/", response_class=RedirectResponse, include_in_schema=False)
 def home():
-    return RedirectResponse(url="/docs")
+    return RedirectResponse(url="/ui/index.html")
 
 
 @app.get("/health")
