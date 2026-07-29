@@ -486,7 +486,8 @@ def latest_results(top_n: int = Query(default=20, ge=1, le=100)):
         "final_score", "quant_score", "qualitative_score",
         "roe_percent_screener", "roe_percent", "roce_percent",
         "debt_to_equity_percent", "current_pe", "promoter_holding",
-        "sales_growth_5y", "free_cash_flow_5y", "estimated_fair_value"
+        "sales_growth_5y", "free_cash_flow_5y", "estimated_fair_value",
+        "strong_buy_below", "accumulate_below", "expensive_above",
     ]
 
     out = []
