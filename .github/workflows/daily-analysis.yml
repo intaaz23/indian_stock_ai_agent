@@ -34,9 +34,10 @@ jobs:
           OPENAI_MODEL: openai/gpt-oss-120b
         run: |
           python run_all_Version.py \
-            --limit 0 \
+            --limit 500 \
             --shortlist-top-n 20 \
-            --skip-fresh-days 7
+            --skip-fresh-days 7 \
+            --llm-sleep 5
 
       - name: Commit and push updated results
         run: |

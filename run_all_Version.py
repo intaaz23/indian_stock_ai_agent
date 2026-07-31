@@ -18,13 +18,16 @@ def run_command(command):
     print("\nRunning:")
     print(" ".join(command))
     print("-" * 80)
+    sys.stdout.flush()
 
-    result = subprocess.run(command, stderr=subprocess.PIPE, text=True)
+    # Do NOT capture stderr — let all output stream directly to the console
+    # so GitHub Actions / terminal shows the real error in real-time.
+    result = subprocess.run(command)
 
     if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
-        raise RuntimeError(f"Command failed: {' '.join(command)}")
+        raise RuntimeError(
+            f"Command failed (exit {result.returncode}): {' '.join(command)}"
+        )
 
 
 def main():
